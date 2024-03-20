@@ -6,6 +6,9 @@ name = "pypi"
 [packages]
 httpx = "*"
 icecream = "*"
+textualize = "*"
+textual = "*"
+textual-dev = "*"
 
 [dev-packages]
 
