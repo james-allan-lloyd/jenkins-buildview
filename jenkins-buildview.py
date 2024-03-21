@@ -8,9 +8,10 @@ import configparser
 from os import path
 from textual import work
 from textual.app import App, ComposeResult
-from textual.widgets import Header, Footer, Static, Tree, Log
+from textual.widgets import Header, Footer, Static, Tree, RichLog
 from textual.widget import Widget
 from textual.reactive import reactive
+from urllib.parse import urljoin
 
 def find_jobs(client: httpx.Client, jenkins_host: str, remotes: list[str]) -> list[str]:
     jobs = []
@@ -49,7 +50,7 @@ class BuildDisplay(Static):
 
     def compose(self) -> ComposeResult:
         yield Tree(id="build_tree", label="No build")
-        log = Log(id="step_log")
+        log = RichLog(id="step_log", wrap=True)
         log.styles.display = "none"
         yield log
 
@@ -66,17 +67,10 @@ class BuildDisplay(Static):
                     case 'FAILED': label = "[red]" + label
                     case 'IN_PROGRESS': label = "[white bold]" + label
 
-                leaf = tree.root.add_leaf(label)
+                leaf = tree.root.add_leaf(label, stage)
         else:
             tree.root.label = "No build"
             
-
-
-    def on_tree_node_selected(self, message):
-        log = self.query_one("#step_log")
-        log.styles.display = "block"
-        log.clear()
-        log.write_line(str(message.node.label))
 
 
 
@@ -89,6 +83,7 @@ class JenkinsBuildViewApp(App):
 
     url = reactive("")
     latest_build_url = reactive("")
+    current_stage_url: str | None = reactive(None)
 
     def __init__(self, initial_url=None):
         super().__init__()
@@ -98,10 +93,36 @@ class JenkinsBuildViewApp(App):
     def compose(self) -> ComposeResult:
         """Create child widgets for the app."""
         yield Footer()
-        yield BuildDisplay(id="build_display")
+        display = BuildDisplay(id="build_display")
+        display.client = self.client
+        yield display
 
     async def on_mount(self) -> None:
         self.update_latest_build() 
+
+    def on_tree_node_selected(self, message):
+        log = self.query_one("#step_log")
+        log.styles.display = "block"
+        self.current_stage_url = urljoin(self.latest_build_url,  message.node.data["_links"]["self"]["href"])
+
+    async def watch_current_stage_url(self, old, new):
+        if new == None:
+            log = self.query_one("#step_log")
+            log.clear()
+        else:
+            self.get_logs(new)
+
+    @work
+    async def get_logs(self, url):
+        data = self.client.get(url).json()
+        if url == self.current_stage_url:
+            log = self.query_one("#step_log")
+            log.clear()
+
+            for node in data["stageFlowNodes"]:
+                log_data = self.client.get(urljoin(url, node["_links"]["log"]["href"])).json()
+                if 'text' in log_data:
+                    log.write(log_data['text'])
 
     def action_toggle_dark(self) -> None:
         """An action to toggle dark mode."""
