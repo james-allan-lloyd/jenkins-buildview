@@ -9,6 +9,7 @@ icecream = "*"
 textualize = "*"
 textual = "*"
 textual-dev = "*"
+arrow = "*"
 
 [dev-packages]
 

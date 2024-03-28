@@ -12,6 +12,8 @@ from textual.widgets import Header, Footer, Static, Tree, RichLog
 from textual.widget import Widget
 from textual.reactive import reactive
 from urllib.parse import urljoin
+import json
+import arrow
 
 def find_jobs(client: httpx.Client, jenkins_host: str, remotes: list[str]) -> list[str]:
     jobs = []
@@ -57,7 +59,14 @@ class BuildDisplay(Static):
     def watch_build(self, old_build, new_build) -> None:
         tree = self.query_one("#build_tree", Tree)
         if new_build:
-            tree.root.label = f"Build {new_build['name']}: {new_build['status']}"
+            if 'endTimeMillis' in new_build:
+                status_time = arrow.get(new_build['endTimeMillis']).humanize(only_distance=True)  # startTimeMillis, durationMills
+            elif 'startTimeMillis' in new_build:
+                status_time = arrow.get(new_build['endTimeMillis']).humanize(only_distance=True)  # startTimeMillis, durationMills
+            else:
+                status_time = ''
+
+            tree.root.label = f"Build {new_build['name']}: {new_build['status']} {status_time} ago"
             tree.root.remove_children()
             tree.root.expand()
             for stage in new_build["stages"]:
@@ -101,9 +110,10 @@ class JenkinsBuildViewApp(App):
         self.update_latest_build() 
 
     def on_tree_node_selected(self, message):
-        log = self.query_one("#step_log")
-        log.styles.display = "block"
-        self.current_stage_url = urljoin(self.latest_build_url,  message.node.data["_links"]["self"]["href"])
+        if message.node.data is not None:
+            log = self.query_one("#step_log")
+            log.styles.display = "block"
+            self.current_stage_url = urljoin(self.latest_build_url,  message.node.data["_links"]["self"]["href"])
 
     async def watch_current_stage_url(self, old, new):
         if new == None:
@@ -130,8 +140,11 @@ class JenkinsBuildViewApp(App):
 
     @work(exclusive=True)
     async def update_latest_build(self) -> None:
-        auth = (os.environ["USERNAME"], os.environ["TOKEN"])
-        job_data = self.client.get(self.url + "/api/json").json()
+        job_data = self.client.get(self.url + "/api/json")
+        try:
+            job_data = job_data.json()
+        except json.JSONDecodeError as e:
+            raise Exception(f"Couldn't decode data: {job_data.content}")
         builds = sorted(job_data["builds"], key=lambda x: x["number"])
         self.latest_build_url = builds[-1]["url"]
         self.set_timer(3, self.update_latest_build, name="latest-build-update-timer")
@@ -147,7 +160,7 @@ class JenkinsBuildViewApp(App):
         latest_build_data = self.client.get(self.latest_build_url + "/wfapi/describe").json()
         build_display.build = latest_build_data
     
-        if latest_build_data["status"] == "IN_PROGRESS":
+        if latest_build_data["status"] == "IN_PROGRESS" or latest_build_data["status"] == "NOT_EXECUTED":
             self.set_timer(2.5, self.update_build, name="build-update-timer")
 
     def action_quit(self) -> None:
