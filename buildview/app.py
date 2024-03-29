@@ -1,7 +1,6 @@
 import httpx
 import sys
 import os
-from icecream import ic
 import subprocess
 import time
 import configparser
@@ -182,7 +181,12 @@ class JenkinsBuildViewApp(App):
         self.client.post(self.url + "/build?delay=0sec")
 
 
-if __name__ == "__main__":
+def main():
+    from dotenv import load_dotenv
+    load_dotenv()
     app = JenkinsBuildViewApp()
     app.url = sys.argv[1]
     app.run()
+
+if __name__ == "__main__":
+    main()
