@@ -1,0 +1,21 @@
+ProjectInfo {
+    height: 3;
+    width: 1fr;
+    dock: top;
+    border: solid white;
+}
+
+ProjectInfo #projectName {
+    width: 1fr;
+}
+
+BuildDisplay #step_log {
+    border: solid white;
+    height: 2fr;
+    display: none;
+}
+
+BuildDisplay #build_tree {
+    padding: 1 1 1 1;
+    height: auto;
+}

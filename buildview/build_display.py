@@ -1,18 +1,27 @@
 from textual.reactive import reactive
 from textual.widgets import Static, Tree, RichLog
 from textual.app import ComposeResult
+from textual.containers import Vertical
 import arrow
 
 
 class BuildDisplay(Static):
+    DEFAULT_CSS = """
+    BuildDisplay {
+        width: 1fr;
+        height: 1fr;
+    }
+    """
 
     build: dict | None = reactive(None)
 
     def compose(self) -> ComposeResult:
-        yield Tree(id="build_tree", label="No build")
         log = RichLog(id="step_log", wrap=True)
-        log.styles.display = "none"
-        yield log
+        log.border_title = "Console"
+        yield Vertical(
+            Tree(id="build_tree", label="No build"),
+            log,
+        )
 
     def on_mount(self) -> None:
         self.set_interval(
@@ -41,6 +50,8 @@ class BuildDisplay(Static):
     def watch_build(self, old_build, new_build) -> None:
         tree = self.query_one("#build_tree", Tree)
         if new_build:
+            if old_build is not None and new_build["id"] != old_build["id"]:
+                self.query_one("#step_log").clear()
             self.update_root_label(tree, new_build)
             tree.root.remove_children()
             tree.root.expand()
