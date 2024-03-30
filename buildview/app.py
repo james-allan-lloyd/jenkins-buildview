@@ -89,7 +89,9 @@ class JenkinsBuildViewApp(App):
 
     @work(exclusive=True)
     async def update_latest_build(self) -> None:
-        job_data = self.client.get(self.url + "/api/json")
+        job_data = self.client.get(
+            self.url + "/api/json?tree=lastBuild[url],fullDisplayName"
+        )
         try:
             job_data = job_data.json()
         except json.JSONDecodeError:
@@ -101,8 +103,7 @@ class JenkinsBuildViewApp(App):
             "server": self.server,
         }
 
-        builds = sorted(job_data["builds"], key=lambda x: x["number"])
-        self.latest_build_url = builds[-1]["url"]
+        self.latest_build_url = job_data["lastBuild"]["url"]
         self.set_timer(3, self.update_latest_build, name="latest-build-update-timer")
 
     async def watch_latest_build_url(self, old_url, new_url):
