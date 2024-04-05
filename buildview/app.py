@@ -3,10 +3,11 @@ import sys
 import os
 from textual import work
 from textual.app import App, ComposeResult
-from textual.widgets import Footer, Static
+from textual.widgets import Footer, Static, RichLog
 from textual.reactive import reactive
 from urllib.parse import urljoin, urlparse
 import json
+from rich.text import Text
 
 from buildview.build_display import BuildDisplay
 from buildview.project_info import ProjectInfo
@@ -71,17 +72,28 @@ class JenkinsBuildViewApp(App):
 
     @work
     async def get_logs(self, url):
+        from textual import log
+
         data = self.client.get(url).json()
         if url == self.current_stage_url:
-            log = self.query_one("#step_log")
-            log.clear()
+            step_log: RichLog = self.query_one("#step_log")
+            step_log.clear()
 
             for node in data["stageFlowNodes"]:
                 log_data = self.client.get(
                     urljoin(url, node["_links"]["log"]["href"])
                 ).json()
+
+                log(log_data)
+
                 if "text" in log_data:
-                    log.write(log_data["text"])
+                    import html
+
+                    step_log.write(
+                        Text.from_ansi(html.unescape(log_data["text"])),
+                        # expand=True,
+                        shrink=True,
+                    )
 
     def action_toggle_dark(self) -> None:
         """An action to toggle dark mode."""

@@ -16,7 +16,7 @@ class BuildDisplay(Static):
     build: dict | None = reactive(None)
 
     def compose(self) -> ComposeResult:
-        log = RichLog(id="step_log", wrap=True)
+        log = RichLog(id="step_log", wrap=True, min_width=120)
         log.border_title = "Console"
         yield Vertical(
             Tree(id="build_tree", label="No build"),

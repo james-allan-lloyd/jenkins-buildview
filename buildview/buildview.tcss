@@ -10,9 +10,15 @@ ProjectInfo #projectName {
 }
 
 BuildDisplay #step_log {
-    border: solid white;
+    border: solid grey;
     height: 2fr;
+    width: 1fr;
     display: none;
+    # overflow-x: hidden;
+}
+
+BuildDisplay #step_log:focus {
+    border: solid white;
 }
 
 BuildDisplay #build_tree {
