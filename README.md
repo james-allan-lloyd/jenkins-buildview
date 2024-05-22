@@ -8,16 +8,16 @@ Python 3.11 and a connection to PyPI. Also a Jenkins and associated token.
 
 ## Running
 
-Make sure you have pipenv installed
+Make sure you have poetry installed
 
 ```shell
-pip install pipenv
+pip install poetry
 ```
 
 Make sure everything installs and is available:
 
 ```shell
-pipenv install
+poetry install
 ```
 
 Generate a Jenkins user token, then add a file `.env` to the Root directory
@@ -31,5 +31,5 @@ TOKEN=<YOUR_JENKINS_TOKEN>
 Then you should be able to run it and follow the builds for a given job:
 
 ```shell
-pipenv run python buildview/jenkins-buildview.py https://jenkins.example.com/job/organisation/job/pipeline-job/job/branch-name
+poetry run jenkins-buildview https://jenkins.example.com/job/organisation/job/pipeline-job/job/branch-name
 ```
