@@ -31,5 +31,5 @@ TOKEN=<YOUR_JENKINS_TOKEN>
 Then you should be able to run it and follow the builds for a given job:
 
 ```shell
-pipenv run python jenkins-buildview.py https://jenkins.example.com/job/organisation/job/pipeline-job/job/branch-name
+pipenv run python buildview/jenkins-buildview.py https://jenkins.example.com/job/organisation/job/pipeline-job/job/branch-name
 ```
