@@ -3,7 +3,7 @@ import sys
 import os
 from textual import work
 from textual.app import App, ComposeResult
-from textual.widgets import Footer, Static, RichLog
+from textual.widgets import Footer, Static
 from textual.reactive import reactive
 from urllib.parse import urljoin, urlparse
 import json
@@ -11,6 +11,7 @@ from rich.text import Text
 
 from buildview.build_display import BuildDisplay
 from buildview.project_info import ProjectInfo
+from buildview.console import Console
 
 
 class JenkinsBuildViewApp(App):
@@ -41,8 +42,8 @@ class JenkinsBuildViewApp(App):
         """Create child widgets for the app."""
         yield Footer()
         yield ProjectInfo(id="project_info")
-        display = BuildDisplay(id="build_display")
-        display.client = self.client
+        display = BuildDisplay(id="build_display", client=self.client)
+        # display.client = self.client
         yield display
 
     def watch_url(self, old, new) -> None:
@@ -57,43 +58,14 @@ class JenkinsBuildViewApp(App):
 
     def on_tree_node_selected(self, message):
         if message.node.data is not None:
-            step_log = self.query_one("#step_log")
+            step_log = self.query_one("#console")
             step_log.styles.display = "block"
             self.current_stage_url = urljoin(
                 self.latest_build_url, message.node.data["_links"]["self"]["href"]
             )
 
     async def watch_current_stage_url(self, old, new):
-        if new is None:
-            log = self.query_one("#step_log")
-            log.clear()
-        else:
-            self.get_logs(new)
-
-    @work
-    async def get_logs(self, url):
-        from textual import log
-
-        data = self.client.get(url).json()
-        if url == self.current_stage_url:
-            step_log: RichLog = self.query_one("#step_log")
-            step_log.clear()
-
-            for node in data["stageFlowNodes"]:
-                log_data = self.client.get(
-                    urljoin(url, node["_links"]["log"]["href"])
-                ).json()
-
-                log(log_data)
-
-                if "text" in log_data:
-                    import html
-
-                    step_log.write(
-                        Text.from_ansi(html.unescape(log_data["text"])),
-                        # expand=True,
-                        shrink=True,
-                    )
+        self.query_one("#console").set_stage_url(new)
 
     def action_toggle_dark(self) -> None:
         """An action to toggle dark mode."""

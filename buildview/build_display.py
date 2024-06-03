@@ -1,8 +1,11 @@
 from textual.reactive import reactive
-from textual.widgets import Static, Tree, RichLog
+from textual.widgets import Static, Tree
 from textual.app import ComposeResult
 from textual.containers import Vertical
 import arrow
+
+from buildview.console import Console
+import httpx
 
 
 class BuildDisplay(Static):
@@ -15,12 +18,15 @@ class BuildDisplay(Static):
 
     build: dict | None = reactive(None)
 
+    def __init__(self, id=None, client=None):
+        self.client = client
+        super().__init__(id=id)
+
     def compose(self) -> ComposeResult:
-        log = RichLog(id="step_log", wrap=True, min_width=120)
-        log.border_title = "Console"
+        console = Console(client=self.client)
         yield Vertical(
             Tree(id="build_tree", label="No build"),
-            log,
+            console,
         )
 
     def on_mount(self) -> None:
@@ -51,7 +57,7 @@ class BuildDisplay(Static):
         tree = self.query_one("#build_tree", Tree)
         if new_build:
             if old_build is not None and new_build["id"] != old_build["id"]:
-                self.query_one("#step_log").clear()
+                self.query_one("#console").clear()
             self.update_root_label(tree, new_build)
             tree.root.remove_children()
             tree.root.expand()
