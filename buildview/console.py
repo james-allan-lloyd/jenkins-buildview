@@ -8,12 +8,17 @@ from html.parser import HTMLParser
 from html.entities import name2codepoint
 
 
-class MyHTMLParser(HTMLParser):
+class HtmlToRichParser(HTMLParser):
     def __init__(self):
+        self._condense_whitespace = False
         self.output = Text()
         # self.output_stack = []
         self.style_stack = [None]
         self.tags_since_last_style = 0
+        self.current_text = ""
+        import re
+
+        self.whitespace_regex = re.compile(r"\s+")
         super().__init__()
 
     def parse_style(self, style_string):
@@ -24,11 +29,25 @@ class MyHTMLParser(HTMLParser):
 
         return result
 
+    def _flush_current_text(self):
+        if len(self.current_text):
+            output_text = (
+                self.whitespace_regex.sub(" ", self.current_text)
+                if self._condense_whitespace
+                else self.current_text
+            )
+            self.output.append(
+                output_text,
+                self.style_stack[-1],
+            )
+            self.current_text = ""
+
     def handle_starttag(self, tag, attrs):
         print("Start tag:", tag)
         has_style = False
         for attr in attrs:
             if attr[0] == "style":
+                self._flush_current_text()
                 style = self.parse_style(attr[1])
                 self.style_stack.append(style["color"])
                 has_style = True
@@ -39,26 +58,27 @@ class MyHTMLParser(HTMLParser):
     def handle_endtag(self, tag):
         print("End tag  :", tag)
         if self.tags_since_last_style == 0:
+            self._flush_current_text()
             del self.style_stack[-1]
         else:
             self.tags_since_last_style -= 1
 
     def handle_data(self, data):
-        print("Data     :", data, self.style_stack[-1])
-        import re
+        self.current_text += data
 
-        data = re.sub(r"\s+", " ", data)
-        self.output.append(data, self.style_stack[-1])
+    def finalized_output(self):
+        self._flush_current_text()
+        return self.output
 
     def handle_comment(self, data):
         print("Comment  :", data)
 
 
 def log_to_rich_text(input: str) -> str:
-    parser = MyHTMLParser()
+    parser = HtmlToRichParser()
     parser.feed(input)
 
-    return parser.output
+    return parser.finalized_output()
 
 
 class Console(Static):
