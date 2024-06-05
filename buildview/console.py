@@ -108,18 +108,18 @@ class Console(Static):
 
     @work
     async def get_logs(self, url):
-        from textual import log
-
-        data = self.client.get(url).json()
+        response = await self.client.get(url)
+        data = response.json()
         if url == self.current_stage_url:
             partial_text = ""
             pending = False
 
             for node in data["stageFlowNodes"]:
                 if node["id"] not in self.current_stage_complete_nodes:
-                    log_data = self.client.get(
+                    response = await self.client.get(
                         urljoin(url, node["_links"]["log"]["href"])
-                    ).json()
+                    )
+                    log_data = response.json()
 
                     if node["status"] in ["IN_PROGRESS", "PENDING"]:
                         partial_text = log_data.get("text", "")
@@ -129,12 +129,10 @@ class Console(Static):
                         self.current_completed_text += log_data.get("text", "")
                         self.current_stage_complete_nodes.add(node["id"])
 
-            log(self.current_completed_text)
             rich_log = self.query_one(RichLog)
             rich_log.clear()
             rich_log.write(
                 log_to_rich_text(self.current_completed_text + partial_text),
-                # expand=True,
                 shrink=True,
             )
 

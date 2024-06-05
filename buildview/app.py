@@ -5,7 +5,7 @@ from textual import work
 from textual.app import App, ComposeResult
 from textual.widgets import Footer, Static
 from textual.reactive import reactive
-from textual.containers import Vertical
+import asyncio
 from urllib.parse import urljoin, urlparse
 import json
 
@@ -35,7 +35,7 @@ class JenkinsBuildViewApp(App):
 
         load_dotenv()
         auth = (os.environ["USERNAME"], os.environ["TOKEN"])
-        self.client = httpx.Client(
+        self.client = httpx.AsyncClient(
             verify="/etc/ssl/certs/ca-bundle.crt",
             auth=auth,
             headers={
@@ -62,8 +62,6 @@ class JenkinsBuildViewApp(App):
 
     def on_tree_node_selected(self, message):
         if message.node.data is not None:
-            step_log = self.query_one("#console")
-            # step_log.styles.display = "block"
             self.current_stage_url = urljoin(
                 self.latest_build_url, message.node.data["_links"]["self"]["href"]
             )
@@ -77,7 +75,7 @@ class JenkinsBuildViewApp(App):
 
     @work(exclusive=True)
     async def update_latest_build(self) -> None:
-        job_data = self.client.get(
+        job_data = await self.client.get(
             self.url + "/api/json?tree=lastBuild[url],fullDisplayName"
         )
         try:
@@ -102,9 +100,8 @@ class JenkinsBuildViewApp(App):
     async def update_build(self) -> None:
         build_display = self.query_one("#build_display", Static)
 
-        latest_build_data = self.client.get(
-            self.latest_build_url + "/wfapi/describe"
-        ).json()
+        response = await self.client.get(self.latest_build_url + "/wfapi/describe")
+        latest_build_data = response.json()
         build_display.build = latest_build_data
 
         if (
@@ -117,7 +114,7 @@ class JenkinsBuildViewApp(App):
         self.exit()
 
     async def action_build(self) -> None:
-        self.client.post(self.url + "/build?delay=0sec")
+        await self.client.post(self.url + "/build?delay=0sec")
 
 
 app = JenkinsBuildViewApp()
