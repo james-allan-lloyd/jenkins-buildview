@@ -11,7 +11,6 @@ class HtmlToRichParser(HTMLParser):
     def __init__(self):
         self._condense_whitespace = False
         self.output = Text()
-        # self.output_stack = []
         self.style_stack = [None]
         self.tags_since_last_style = 0
         self.current_text = ""
@@ -42,7 +41,6 @@ class HtmlToRichParser(HTMLParser):
             self.current_text = ""
 
     def handle_starttag(self, tag, attrs):
-        print("Start tag:", tag)
         has_style = False
         for attr in attrs:
             if attr[0] == "style":
@@ -55,7 +53,6 @@ class HtmlToRichParser(HTMLParser):
             self.tags_since_last_style += 1
 
     def handle_endtag(self, tag):
-        print("End tag  :", tag)
         if self.tags_since_last_style == 0:
             self._flush_current_text()
             del self.style_stack[-1]
@@ -70,7 +67,7 @@ class HtmlToRichParser(HTMLParser):
         return self.output
 
     def handle_comment(self, data):
-        print("Comment  :", data)
+        pass
 
 
 def log_to_rich_text(input: str) -> str:
