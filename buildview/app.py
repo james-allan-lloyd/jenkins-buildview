@@ -5,13 +5,12 @@ from textual import work
 from textual.app import App, ComposeResult
 from textual.widgets import Footer, Static
 from textual.reactive import reactive
+from textual.containers import Vertical
 from urllib.parse import urljoin, urlparse
 import json
-from rich.text import Text
 
 from buildview.build_display import BuildDisplay
 from buildview.project_info import ProjectInfo
-from buildview.console import Console
 
 
 class JenkinsBuildViewApp(App):
@@ -36,15 +35,20 @@ class JenkinsBuildViewApp(App):
 
         load_dotenv()
         auth = (os.environ["USERNAME"], os.environ["TOKEN"])
-        self.client = httpx.Client(verify="/etc/ssl/certs/ca-bundle.crt", auth=auth)
+        self.client = httpx.Client(
+            verify="/etc/ssl/certs/ca-bundle.crt",
+            auth=auth,
+            headers={
+                "Accept": "application/json, text/javascript, */*; q=0.01",
+                "Accept-Encoding": "gzip, deflate, br, zstd",
+            },
+        )
 
     def compose(self) -> ComposeResult:
         """Create child widgets for the app."""
         yield Footer()
         yield ProjectInfo(id="project_info")
-        display = BuildDisplay(id="build_display", client=self.client)
-        # display.client = self.client
-        yield display
+        yield BuildDisplay(id="build_display", client=self.client)
 
     def watch_url(self, old, new) -> None:
         if new is not None:
@@ -59,7 +63,7 @@ class JenkinsBuildViewApp(App):
     def on_tree_node_selected(self, message):
         if message.node.data is not None:
             step_log = self.query_one("#console")
-            step_log.styles.display = "block"
+            # step_log.styles.display = "block"
             self.current_stage_url = urljoin(
                 self.latest_build_url, message.node.data["_links"]["self"]["href"]
             )

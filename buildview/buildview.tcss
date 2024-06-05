@@ -9,19 +9,21 @@ ProjectInfo #projectName {
     width: 1fr;
 }
 
-BuildDisplay #step_log {
-    border: solid grey;
-    height: 2fr;
+BuildDisplay {
     width: 1fr;
-    display: none;
-    # overflow-x: hidden;
-}
-
-BuildDisplay #step_log:focus {
-    border: solid white;
+    height: 100%;
 }
 
 BuildDisplay #build_tree {
     padding: 1 1 1 1;
     height: auto;
+}
+
+BuildDisplay #console {
+    border: solid grey;
+    height: 1fr;
+}
+
+BuildDisplay #console:focus {
+    border: solid white;
 }

@@ -5,7 +5,6 @@ from textual.containers import Vertical
 import arrow
 
 from buildview.console import Console
-import httpx
 
 
 class BuildDisplay(Static):
