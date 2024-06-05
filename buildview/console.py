@@ -5,7 +5,6 @@ from urllib.parse import urljoin
 from rich.text import Text
 
 from html.parser import HTMLParser
-from html.entities import name2codepoint
 
 
 class HtmlToRichParser(HTMLParser):
@@ -85,10 +84,12 @@ class Console(Static):
     def __init__(self, client):
         self.client = client
         self.current_stage_url = None
+        self.current_stage_complete_nodes = set()
+        self.current_completed_text = ""
         super().__init__(id="console")
 
     def compose(self) -> ComposeResult:
-        log = RichLog(wrap=True, min_width=120)
+        log = RichLog(wrap=True, min_width=120, max_lines=None)
         log.border_title = "Console"
         yield log
 
@@ -101,6 +102,8 @@ class Console(Static):
         else:
             if self.current_stage_url != url:
                 self.current_stage_url = url
+                self.current_completed_text = ""
+                self.current_stage_complete_nodes.clear()
                 self.get_logs(self.current_stage_url)
 
     @work
@@ -109,18 +112,31 @@ class Console(Static):
 
         data = self.client.get(url).json()
         if url == self.current_stage_url:
-            self.query_one(RichLog).clear()
+            partial_text = ""
+            pending = False
 
             for node in data["stageFlowNodes"]:
-                log_data = self.client.get(
-                    urljoin(url, node["_links"]["log"]["href"])
-                ).json()
+                if node["id"] not in self.current_stage_complete_nodes:
+                    log_data = self.client.get(
+                        urljoin(url, node["_links"]["log"]["href"])
+                    ).json()
 
-                log(log_data)
+                    if node["status"] in ["IN_PROGRESS", "PENDING"]:
+                        partial_text = log_data.get("text", "")
+                        pending = True
+                        break
+                    else:
+                        self.current_completed_text += log_data.get("text", "")
+                        self.current_stage_complete_nodes.add(node["id"])
 
-                if "text" in log_data:
-                    self.query_one(RichLog).write(
-                        log_to_rich_text(log_data["text"]),
-                        # expand=True,
-                        shrink=True,
-                    )
+            log(self.current_completed_text)
+            rich_log = self.query_one(RichLog)
+            rich_log.clear()
+            rich_log.write(
+                log_to_rich_text(self.current_completed_text + partial_text),
+                # expand=True,
+                shrink=True,
+            )
+
+            if pending:
+                self.get_logs(url)
