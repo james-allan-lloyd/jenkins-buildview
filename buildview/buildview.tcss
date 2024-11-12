@@ -20,10 +20,15 @@ BuildDisplay #build_tree {
 }
 
 BuildDisplay #console {
+    height: 1fr;
+}
+
+BuildDisplay #console RichLog {
     border: solid grey;
     height: 1fr;
 }
 
-BuildDisplay #console:focus {
-    border: solid white;
+BuildDisplay #console RichLog :focus {
+    border: solid orange;
+    height: 1fr;
 }

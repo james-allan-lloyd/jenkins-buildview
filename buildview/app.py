@@ -1,7 +1,7 @@
 import httpx
 import sys
 import os
-from textual import work
+from textual import work, log, events
 from textual.app import App, ComposeResult
 from textual.widgets import Footer
 from textual.reactive import reactive
@@ -65,6 +65,8 @@ class JenkinsBuildViewApp(App):
             self.current_stage_url = urljoin(
                 self.latest_build_url, message.node.data["_links"]["self"]["href"]
             )
+            tree = self.query_one("#build_tree")
+            self.query_one("#console", Console).push_focus(tree)
 
     async def watch_current_stage_url(self, _, new):
         self.query_one("#console", Console).set_stage_url(new)

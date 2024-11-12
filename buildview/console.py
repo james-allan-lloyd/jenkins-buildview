@@ -1,3 +1,5 @@
+import textual
+from textual import events
 from textual.widgets import Static, RichLog
 from textual.app import ComposeResult
 from textual import work
@@ -83,7 +85,17 @@ class Console(Static):
         self.current_stage_url = None
         self.current_stage_complete_nodes = set()
         self.current_completed_text = ""
+        self.prev_focus = None
         super().__init__(id="console")
+
+    def on_key(self, event: events.Key) -> None:
+        if event.name == "escape":
+            if self.prev_focus:
+                self.prev_focus.focus()
+
+    def push_focus(self, prev_focus):
+        self.query_one(RichLog).focus()
+        self.prev_focus = prev_focus
 
     def compose(self) -> ComposeResult:
         log = RichLog(wrap=True, min_width=120, max_lines=None)
