@@ -15,7 +15,8 @@ class BuildDisplay(Static):
     }
     """
 
-    build: dict | None = reactive(None)
+    build = reactive[dict | None](None)
+    changesets = reactive[dict | None](None)
 
     def __init__(self, id=None, client=None):
         self.client = client
@@ -33,7 +34,11 @@ class BuildDisplay(Static):
             1, self.update_time_since_build, name="update-time-since-build-timer"
         )
 
-    def update_root_label(self, tree, build):
+    def update_root_label(self, tree):
+        build = self.build
+        if build is None:
+            return
+
         if "endTimeMillis" in build:
             status_time = arrow.get(build["endTimeMillis"]).humanize(
                 only_distance=True
@@ -47,17 +52,31 @@ class BuildDisplay(Static):
 
         tree.root.label = f"Build {build['name']}: {build['status']} {status_time} ago"
 
+        change_desc = []
+        if self.changesets is not None:
+            for set in self.changesets:
+                for commit in set.get("commits", []):
+                    summary = commit["message"].partition("\n")[0]
+                    change_desc.append(summary)
+
+            change_str = ",".join(change_desc)
+            tree.root.label += f" (changes: {change_str})"
+
     def update_time_since_build(self) -> None:
         if self.build is not None:
             tree = self.query_one("#build_tree", Tree)
-            self.update_root_label(tree, self.build)
+            self.update_root_label(tree)
+
+    def watch_changesets(self, _, changesets) -> None:
+        tree = self.query_one("#build_tree", Tree)
+        self.update_root_label(tree)
 
     def watch_build(self, old_build, new_build) -> None:
         tree = self.query_one("#build_tree", Tree)
         if new_build:
             if old_build is not None and new_build["id"] != old_build["id"]:
-                self.query_one("#console").clear()
-            self.update_root_label(tree, new_build)
+                self.query_one("#console", Console).clear()
+            self.update_root_label(tree)
             tree.root.remove_children()
             tree.root.expand()
             for stage in new_build["stages"]:

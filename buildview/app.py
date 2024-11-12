@@ -3,13 +3,13 @@ import sys
 import os
 from textual import work
 from textual.app import App, ComposeResult
-from textual.widgets import Footer, Static
+from textual.widgets import Footer
 from textual.reactive import reactive
-import asyncio
 from urllib.parse import urljoin, urlparse
 import json
 
 from buildview.build_display import BuildDisplay
+from buildview.console import Console
 from buildview.project_info import ProjectInfo
 
 
@@ -26,9 +26,9 @@ class JenkinsBuildViewApp(App):
 
     url = reactive("")
     latest_build_url = reactive("")
-    current_stage_url: str | None = reactive(None)
+    current_stage_url = reactive[str | None](None)
 
-    def __init__(self, initial_url=None):
+    def __init__(self):
         from dotenv import load_dotenv
 
         super().__init__()
@@ -50,7 +50,7 @@ class JenkinsBuildViewApp(App):
         yield ProjectInfo(id="project_info")
         yield BuildDisplay(id="build_display", client=self.client)
 
-    def watch_url(self, old, new) -> None:
+    def watch_url(self, _, new) -> None:
         if new is not None:
             parsed_url = urlparse(new)
             self.server = parsed_url.hostname
@@ -66,8 +66,8 @@ class JenkinsBuildViewApp(App):
                 self.latest_build_url, message.node.data["_links"]["self"]["href"]
             )
 
-    async def watch_current_stage_url(self, old, new):
-        self.query_one("#console").set_stage_url(new)
+    async def watch_current_stage_url(self, _, new):
+        self.query_one("#console", Console).set_stage_url(new)
 
     def action_toggle_dark(self) -> None:
         """An action to toggle dark mode."""
@@ -83,7 +83,7 @@ class JenkinsBuildViewApp(App):
         except json.JSONDecodeError:
             raise Exception(f"Couldn't decode data: {job_data.content}")
 
-        project_info = self.query_one("#project_info")
+        project_info = self.query_one("#project_info", ProjectInfo)
         project_info.project = {
             "name": job_data["fullDisplayName"],
             "server": self.server,
@@ -92,25 +92,28 @@ class JenkinsBuildViewApp(App):
         self.latest_build_url = job_data["lastBuild"]["url"]
         self.set_timer(3, self.update_latest_build, name="latest-build-update-timer")
 
-    async def watch_latest_build_url(self, old_url, new_url):
+    async def watch_latest_build_url(self, _, new_url):
         if len(new_url):
             self.update_build()
 
     @work(exclusive=True)
     async def update_build(self) -> None:
-        build_display = self.query_one("#build_display", Static)
+        from textual import log
+
+        log("update build")
+        build_display = self.query_one("#build_display", BuildDisplay)
 
         response = await self.client.get(self.latest_build_url + "/wfapi/describe")
         latest_build_data = response.json()
         build_display.build = latest_build_data
 
-        if (
-            latest_build_data["status"] == "IN_PROGRESS"
-            or latest_build_data["status"] == "NOT_EXECUTED"
-        ):
+        response = await self.client.get(self.latest_build_url + "/wfapi/changesets")
+        build_display.changesets = response.json()
+
+        if latest_build_data["status"] in ["IN_PROGRESS", "NOT_EXECUTED"]:
             self.set_timer(2.5, self.update_build, name="build-update-timer")
 
-    def action_quit(self) -> None:
+    async def action_quit(self):
         self.exit()
 
     async def action_build(self) -> None:

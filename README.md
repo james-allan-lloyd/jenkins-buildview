@@ -21,7 +21,7 @@ poetry install
 ```
 
 Generate a Jenkins user token, then add a file `.env` to the Root directory
-with the following: 
+with the following:
 
 ```shell
 USERNAME=<YOUR_JENKINS_USERNAME>
@@ -44,7 +44,8 @@ application.
 Start the console like this:
 
 ```shell
-poetry run textual console -x SYSTEM -x EVENT -x DEBUG -x WORKER  # remove if you want to see framework events too
+poetry run textual console -x SYSTEM -x EVENT -x DEBUG \
+  -x WORKER  # remove if you want to see framework events too
 ```
 
 And then start the application like this:
