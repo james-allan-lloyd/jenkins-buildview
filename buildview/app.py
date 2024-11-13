@@ -5,7 +5,7 @@ import os
 import textual
 from textual import work, events
 from textual.app import App, ComposeResult
-from textual.widgets import Footer
+from textual.widgets import Footer, RichLog, Tree
 from textual.reactive import reactive
 from urllib.parse import urljoin, urlparse
 import json
@@ -28,7 +28,7 @@ class JenkinsBuildViewApp(App):
 
     url = reactive("")
     latest_build_url = reactive("")
-    current_stage_url = reactive[str | None](None)
+    # current_stage_url = reactive[str | None](None)
 
     def __init__(self):
         from dotenv import load_dotenv
@@ -45,6 +45,7 @@ class JenkinsBuildViewApp(App):
                 "Accept-Encoding": "gzip, deflate, br, zstd",
             },
         )
+        self.positions = {}
 
     def compose(self) -> ComposeResult:
         """Create child widgets for the app."""
@@ -62,16 +63,43 @@ class JenkinsBuildViewApp(App):
     async def on_mount(self) -> None:
         self.update_latest_build()
 
+    def on_tree_node_highlighted(self, message):
+        if message.node.data is not None:
+            # self.current_stage_url = urljoin(
+            #     self.latest_build_url, message.node.data["_links"]["self"]["href"]
+            # )
+            if self.focused == self.query_one("#build_tree"):
+                position = self.positions.get(message.node.data["name"])
+                self.query_one("#console RichLog", RichLog).scroll_to(
+                    0, position, duration=1
+                )
+
     def on_tree_node_selected(self, message):
         if message.node.data is not None:
-            self.current_stage_url = urljoin(
-                self.latest_build_url, message.node.data["_links"]["self"]["href"]
-            )
             tree = self.query_one("#build_tree")
             self.query_one("#console", Console).push_focus(tree)
 
-    async def watch_current_stage_url(self, _, new):
-        self.query_one("#console", Console).set_stage_url(new)
+    def on_console_line_changed(self, message):
+        label = None
+        textual.log(message.line)
+        sorted_positions = sorted(self.positions.items(), key=lambda p: p[1])
+        textual.log(sorted_positions)
+        for position in sorted_positions:
+            if label is None or message.line >= position[1]:
+                label = position[0]
+            else:
+                break
+        tree = self.query_one("#build_tree", Tree)
+        nodes = list(
+            filter(
+                lambda x: x.data["name"] == label,
+                tree.root.children,
+            )
+        )
+        tree.move_cursor(nodes[0])
+
+    # async def watch_current_stage_url(self, _, new):
+    #     self.query_one("#console", Console).set_stage_url(new)
 
     def action_toggle_dark(self) -> None:
         """An action to toggle dark mode."""
@@ -102,8 +130,6 @@ class JenkinsBuildViewApp(App):
 
     @work(exclusive=True)
     async def update_build(self) -> None:
-        # build_display = self.query_one("#build_display", BuildDisplay)
-
         currently_watched_build_url = None
 
         # while True:
@@ -114,13 +140,17 @@ class JenkinsBuildViewApp(App):
 
             response = await self.client.get(self.latest_build_url + "/wfapi/describe")
 
+            build_display = self.query_one("#build_display", BuildDisplay)
             build = response.json()
+            build_display.build = build
             textual.log(build)
 
             stages: list = build["stages"]
+            self.positions = {}
 
             while len(stages):
                 stage = stages.pop(0)
+                self.positions[stage["name"]] = console.current_position
                 console.append("[yellow]--- " + stage["name"] + " ---[/yellow]")
 
                 response = await self.client.get(
@@ -144,7 +174,7 @@ class JenkinsBuildViewApp(App):
                         response = await self.client.get(
                             log_url, params={"nodeId": node["id"]}
                         )
-                        textual.log(response.json())
+                        # textual.log(response.json())
                         log_data = response.json()["data"]
 
                         if node["status"] in ["IN_PROGRESS", "PENDING"]:
@@ -153,6 +183,8 @@ class JenkinsBuildViewApp(App):
                         else:
                             pending = False
                             console.append(log_data.get("text", ""))
+
+            textual.log(self.positions)
 
             # response = await self.client.get(url)
 
