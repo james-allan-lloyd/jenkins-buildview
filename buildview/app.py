@@ -1,7 +1,9 @@
 import httpx
+import asyncio
 import sys
 import os
-from textual import work, log, events
+import textual
+from textual import work, events
 from textual.app import App, ComposeResult
 from textual.widgets import Footer
 from textual.reactive import reactive
@@ -100,20 +102,74 @@ class JenkinsBuildViewApp(App):
 
     @work(exclusive=True)
     async def update_build(self) -> None:
-        from textual import log
+        # build_display = self.query_one("#build_display", BuildDisplay)
 
-        log("update build")
-        build_display = self.query_one("#build_display", BuildDisplay)
+        currently_watched_build_url = None
 
-        response = await self.client.get(self.latest_build_url + "/wfapi/describe")
-        latest_build_data = response.json()
-        build_display.build = latest_build_data
+        # while True:
+        if currently_watched_build_url != self.latest_build_url:
+            currently_watched_build_url = self.latest_build_url
+            console = self.query_one("#console", Console)
+            console.clear()
 
-        response = await self.client.get(self.latest_build_url + "/wfapi/changesets")
-        build_display.changesets = response.json()
+            response = await self.client.get(self.latest_build_url + "/wfapi/describe")
 
-        if latest_build_data["status"] in ["IN_PROGRESS", "NOT_EXECUTED"]:
-            self.set_timer(2.5, self.update_build, name="build-update-timer")
+            build = response.json()
+            textual.log(build)
+
+            stages: list = build["stages"]
+
+            while len(stages):
+                stage = stages.pop(0)
+                console.append("[yellow]--- " + stage["name"] + " ---[/yellow]")
+
+                response = await self.client.get(
+                    urljoin(
+                        currently_watched_build_url, stage["_links"]["self"]["href"]
+                    )
+                )
+                data = response.json()
+                pending = False
+
+                nodes = data["stageFlowNodes"]
+                for node in nodes:
+                    pending = True
+                    while pending:
+                        log_url = urljoin(
+                            currently_watched_build_url,
+                            # node["_links"]["log"]["href"],
+                            "pipeline-console/consoleOutput",
+                        )
+                        # textual.log(log_url)
+                        response = await self.client.get(
+                            log_url, params={"nodeId": node["id"]}
+                        )
+                        textual.log(response.json())
+                        log_data = response.json()["data"]
+
+                        if node["status"] in ["IN_PROGRESS", "PENDING"]:
+                            console.append(log_data.get("text", ""))
+                            pending = True
+                        else:
+                            pending = False
+                            console.append(log_data.get("text", ""))
+
+            # response = await self.client.get(url)
+
+            # response = await self.client.get(
+            #     self.latest_build_url + "/wfapi/changesets"
+            # )
+
+            # build_display.changesets = response.json()
+
+            # textual.log(build_display.build)
+
+            # await asyncio.sleep(1)
+
+        # build_display.build = latest_build_data
+
+        # if latest_build_data["status"] in ["IN_PROGRESS", "NOT_EXECUTED"]:
+        #     self.set_timer(2.5, self.update_build, name="build-update-timer")
 
     async def action_quit(self):
         self.exit()

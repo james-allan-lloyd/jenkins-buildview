@@ -98,7 +98,7 @@ class Console(Static):
         self.prev_focus = prev_focus
 
     def compose(self) -> ComposeResult:
-        log = RichLog(wrap=True, min_width=120, max_lines=None)
+        log = RichLog(markup=True, wrap=True, min_width=120, max_lines=None)
         log.border_title = "Console"
         yield log
 
@@ -114,6 +114,9 @@ class Console(Static):
                 self.current_completed_text = ""
                 self.current_stage_complete_nodes.clear()
                 self.get_logs(self.current_stage_url)
+
+    def append(self, text: str) -> None:
+        self.query_one(RichLog).write(log_to_rich_text(text), shrink=True)
 
     @work
     async def get_logs(self, url):
