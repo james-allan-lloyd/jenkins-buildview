@@ -75,11 +75,10 @@ class BuildDisplay(Static):
         tree = self.query_one("#build_tree", Tree)
         if new_build:
             if old_build is not None and new_build["id"] != old_build["id"]:
-                self.query_one("#console", Console).clear()
+                tree.root.remove_children()
             self.update_root_label(tree)
-            tree.root.remove_children()
             tree.root.expand()
-            for stage in new_build["stages"]:
+            for i, stage in enumerate(new_build["stages"]):
                 label = f"{stage['name']} {stage['status']} {stage['error']['message'] if 'error' in stage else ''}"
                 match stage["status"]:
                     case "SUCCESS":
@@ -89,6 +88,9 @@ class BuildDisplay(Static):
                     case "IN_PROGRESS":
                         label = "[white bold]" + label
 
-                tree.root.add_leaf(label, stage)
+                if i < len(tree.root.children):
+                    tree.root.children[i].label = label
+                else:
+                    tree.root.add_leaf(label, stage)
         else:
             tree.root.label = "No build"

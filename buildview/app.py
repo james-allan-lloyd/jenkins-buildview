@@ -28,7 +28,6 @@ class JenkinsBuildViewApp(App):
 
     url = reactive("")
     latest_build_url = reactive("")
-    # current_stage_url = reactive[str | None](None)
 
     def __init__(self):
         from dotenv import load_dotenv
@@ -80,7 +79,7 @@ class JenkinsBuildViewApp(App):
         tree = self.query_one("#build_tree", Tree)
         nodes = list(
             filter(
-                lambda x: x.data["name"] == label,
+                lambda x: x.data is not None and x.data["name"] == label,
                 tree.root.children,
             )
         )
@@ -108,9 +107,10 @@ class JenkinsBuildViewApp(App):
         """An action to toggle dark mode."""
         self.dark = not self.dark
 
-    @work(exclusive=True)
+    @work(exclusive=True, exit_on_error=True, group="latest_build")
     async def update_latest_build(self) -> None:
-        while True:
+        exiting = False
+        while not exiting:
             job_data = await self.client.get(
                 self.url + "/api/json?tree=lastBuild[url],fullDisplayName"
             )
@@ -127,13 +127,9 @@ class JenkinsBuildViewApp(App):
 
             if job_data["lastBuild"]["url"] != self.latest_build_url:
                 self.latest_build_url = job_data["lastBuild"]["url"]
+                self.update_build()
 
-            await asyncio.sleep(3)
-
-    async def watch_latest_build_url(self, _, new_url):
-        if len(new_url):
-            textual.log("Updating new build")
-            self.update_build()
+            await asyncio.sleep(1)
 
     async def watch_stage(self, stage):
         pending = False
@@ -179,7 +175,7 @@ class JenkinsBuildViewApp(App):
 
         textual.log("Stage finished: " + stage["name"])
 
-    @work(exclusive=True)
+    @work(exclusive=True, group="build_update")
     async def update_build(self) -> None:
         try:
             console = self.query_one("#console", Console)
@@ -192,9 +188,9 @@ class JenkinsBuildViewApp(App):
                 build_display = self.query_one("#build_display", BuildDisplay)
                 build = response.json()
                 build_display.build = build
-                if build["status"] != "NOT_EXECUTED":
+                await asyncio.sleep(1)
+                if len(build["stages"]) > 0:
                     break
-            # textual.log(build)
 
             stages: list = build["stages"]
             self.positions = {}
@@ -203,7 +199,6 @@ class JenkinsBuildViewApp(App):
             while len(stages):
                 stage = stages.pop(0)
                 self.positions[stage["name"]] = console.current_position
-                textual.log(self.positions)
                 console.append("[yellow]--- " + stage["name"] + " ---[/yellow]")
 
                 self.set_current_node_by_label(stage["name"])

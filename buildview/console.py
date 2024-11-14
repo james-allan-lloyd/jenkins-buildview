@@ -1,10 +1,7 @@
-import textual
 from textual import events
 from textual.widgets import Static, RichLog
 from textual.app import ComposeResult
 from textual.message import Message
-from textual import work
-from urllib.parse import urljoin
 from rich.text import Text
 
 from html.parser import HTMLParser
@@ -77,7 +74,7 @@ def log_to_rich_text(input: str) -> str:
     parser = HtmlToRichParser()
     parser.feed(input)
 
-    return parser.finalized_output()
+    return str(parser.finalized_output())
 
 
 class Console(Static):
@@ -99,7 +96,7 @@ class Console(Static):
         if event.name == "escape":
             if self.prev_focus:
                 self.prev_focus.focus()
-        if event.name in ["down", "up"]:
+        if event.name in ["down", "up", "pageup", "pagedown"]:
             self.post_message(self.LineChanged(self.query_one(RichLog).scroll_offset.y))
 
     def push_focus(self, prev_focus):
