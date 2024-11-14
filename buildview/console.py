@@ -112,52 +112,14 @@ class Console(Static):
         yield log
 
     def clear(self):
-        self.query_one(RichLog).clear()
-
-    # def set_stage_url(self, url):
-    #     if url is None:
-    #         self.query_one(RichLog).clear()
-    #     else:
-    #         if self.current_stage_url != url:
-    #             self.current_stage_url = url
-    #             self.current_completed_text = ""
-    #             self.current_stage_complete_nodes.clear()
-    #             self.get_logs(self.current_stage_url)
+        rich_log = self.query_one(RichLog)
+        rich_log.clear()
+        self.current_position = rich_log.virtual_size.height
 
     def append(self, text: str) -> None:
         rich_log = self.query_one(RichLog)
-        rich_log.write(log_to_rich_text(text), shrink=True)
+        rich_log.write(text, shrink=True)
         self.current_position = rich_log.virtual_size.height
 
-    @work
-    async def get_logs(self, url):
-        response = await self.client.get(url)
-        data = response.json()
-        if url == self.current_stage_url:
-            partial_text = ""
-            pending = False
-
-            for node in data["stageFlowNodes"]:
-                if node["id"] not in self.current_stage_complete_nodes:
-                    response = await self.client.get(
-                        urljoin(url, node["_links"]["log"]["href"])
-                    )
-                    log_data = response.json()
-
-                    if node["status"] in ["IN_PROGRESS", "PENDING"]:
-                        partial_text = log_data.get("text", "")
-                        pending = True
-                        break
-                    else:
-                        self.current_completed_text += log_data.get("text", "")
-                        self.current_stage_complete_nodes.add(node["id"])
-
-            rich_log = self.query_one(RichLog)
-            rich_log.clear()
-            rich_log.write(
-                log_to_rich_text(self.current_completed_text + partial_text),
-                shrink=True,
-            )
-
-            if pending:
-                self.get_logs(url)
+    def append_html(self, text: str) -> None:
+        self.append(log_to_rich_text(text))

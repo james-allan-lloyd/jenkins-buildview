@@ -110,107 +110,120 @@ class JenkinsBuildViewApp(App):
 
     @work(exclusive=True)
     async def update_latest_build(self) -> None:
-        job_data = await self.client.get(
-            self.url + "/api/json?tree=lastBuild[url],fullDisplayName"
-        )
-        try:
-            job_data = job_data.json()
-        except json.JSONDecodeError:
-            raise Exception(f"Couldn't decode data: {job_data.content}")
+        while True:
+            job_data = await self.client.get(
+                self.url + "/api/json?tree=lastBuild[url],fullDisplayName"
+            )
+            try:
+                job_data = job_data.json()
+            except json.JSONDecodeError:
+                raise Exception(f"Couldn't decode data: {job_data.content}")
 
-        project_info = self.query_one("#project_info", ProjectInfo)
-        project_info.project = {
-            "name": job_data["fullDisplayName"],
-            "server": self.server,
-        }
+            project_info = self.query_one("#project_info", ProjectInfo)
+            project_info.project = {
+                "name": job_data["fullDisplayName"],
+                "server": self.server,
+            }
 
-        self.latest_build_url = job_data["lastBuild"]["url"]
-        self.set_timer(3, self.update_latest_build, name="latest-build-update-timer")
+            if job_data["lastBuild"]["url"] != self.latest_build_url:
+                self.latest_build_url = job_data["lastBuild"]["url"]
+
+            await asyncio.sleep(3)
 
     async def watch_latest_build_url(self, _, new_url):
         if len(new_url):
+            textual.log("Updating new build")
             self.update_build()
 
-    @work(exclusive=True)
-    async def update_build(self) -> None:
-        currently_watched_build_url = None
+    async def watch_stage(self, stage):
+        pending = False
+        node_index = 0
+        startByte = 0
+        while True:
+            response = await self.client.get(
+                urljoin(self.latest_build_url, stage["_links"]["self"]["href"])
+            )
+            stage_data = response.json()
+            # textual.log(stage_data)
+            if node_index >= len(stage_data["stageFlowNodes"]):
+                break
+            node = stage_data["stageFlowNodes"][node_index]
+            pending = True
+            status_url = urljoin(self.latest_build_url, node["_links"]["self"]["href"])
+            response = await self.client.get(status_url)
+            node = response.json()
 
-        # while True:
-        if currently_watched_build_url != self.latest_build_url:
-            currently_watched_build_url = self.latest_build_url
+            log_url = urljoin(
+                self.latest_build_url,
+                "pipeline-console/consoleOutput",
+            )
+            # textual.log(log_url)
+            response = await self.client.get(
+                log_url,
+                params={"nodeId": node["id"], "startByte": startByte},
+            )
+            log_data = response.json()["data"]
+
+            # textual.log(node)
+            pending = stage_data["status"] in ["IN_PROGRESS", "PENDING"]
+            startByte = log_data["endByte"]
+            self.query_one("#console", Console).append_html(log_data.get("text", ""))
+
+            if pending:
+                textual.log("sleeping, waiting for logs")
+                await asyncio.sleep(1)
+                textual.log("awake")
+            else:
+                node_index += 1
+                startByte = 0
+
+        textual.log("Stage finished: " + stage["name"])
+
+    @work(exclusive=False)
+    async def update_build(self) -> None:
+        try:
             console = self.query_one("#console", Console)
             console.clear()
 
-            response = await self.client.get(self.latest_build_url + "/wfapi/describe")
-
-            build_display = self.query_one("#build_display", BuildDisplay)
-            build = response.json()
-            build_display.build = build
+            while True:
+                response = await self.client.get(
+                    self.latest_build_url + "/wfapi/describe"
+                )
+                build_display = self.query_one("#build_display", BuildDisplay)
+                build = response.json()
+                build_display.build = build
+                if build["status"] != "NOT_EXECUTED":
+                    break
             # textual.log(build)
 
             stages: list = build["stages"]
             self.positions = {}
+            known_stages = set(s["name"] for s in stages)
 
             while len(stages):
                 stage = stages.pop(0)
                 self.positions[stage["name"]] = console.current_position
+                textual.log(self.positions)
                 console.append("[yellow]--- " + stage["name"] + " ---[/yellow]")
 
                 self.set_current_node_by_label(stage["name"])
 
+                await self.watch_stage(stage)
+
                 response = await self.client.get(
-                    urljoin(
-                        currently_watched_build_url, stage["_links"]["self"]["href"]
-                    )
+                    self.latest_build_url + "/wfapi/describe"
                 )
-                data = response.json()
-                pending = False
+                build = response.json()
+                build_display.build = build
+                stages.extend(
+                    filter(lambda s: s["name"] not in known_stages, build["stages"])
+                )
+                known_stages = set(s["name"] for s in build["stages"])
 
-                nodes = data["stageFlowNodes"]
-                for node in nodes:
-                    startByte = 0
-                    pending = True
-                    while pending:
-                        log_url = urljoin(
-                            currently_watched_build_url,
-                            # node["_links"]["log"]["href"],
-                            "pipeline-console/consoleOutput",
-                        )
-                        # textual.log(log_url)
-                        response = await self.client.get(
-                            log_url,
-                            params={"nodeId": node["id"], "startByte": startByte},
-                        )
-                        # textual.log(response.json())
-                        log_data = response.json()["data"]
-
-                        startByte = log_data["endByte"]
-                        console.append(log_data.get("text", ""))
-
-                        if node["status"] in ["IN_PROGRESS", "PENDING"]:
-                            pending = True
-                            await asyncio.sleep(1)
-                        else:
-                            pending = False
-
-            # textual.log(self.positions)
-
-            # response = await self.client.get(url)
-
-            # response = await self.client.get(
-            #     self.latest_build_url + "/wfapi/changesets"
-            # )
-
-            # build_display.changesets = response.json()
-
-            # textual.log(build_display.build)
-
-            # await asyncio.sleep(1)
-
-        # build_display.build = latest_build_data
-
-        # if latest_build_data["status"] in ["IN_PROGRESS", "NOT_EXECUTED"]:
-        #     self.set_timer(2.5, self.update_build, name="build-update-timer")
+        except asyncio.CancelledError as e:
+            textual.log("Cancelled with " + str(e))
+            raise
+        textual.log("Build finished")
 
     async def action_quit(self):
         self.exit()
