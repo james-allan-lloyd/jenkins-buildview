@@ -179,7 +179,7 @@ class JenkinsBuildViewApp(App):
 
         textual.log("Stage finished: " + stage["name"])
 
-    @work(exclusive=False)
+    @work(exclusive=True)
     async def update_build(self) -> None:
         try:
             console = self.query_one("#console", Console)
