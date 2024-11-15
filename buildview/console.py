@@ -114,6 +114,8 @@ class Console(Static):
         self.current_position = rich_log.virtual_size.height
 
     def append(self, text: str) -> None:
+        if len(text) == 0:
+            return
         rich_log = self.query_one(RichLog)
         rich_log.write(text, shrink=True)
         self.current_position = rich_log.virtual_size.height
