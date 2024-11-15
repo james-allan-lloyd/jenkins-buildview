@@ -8,13 +8,6 @@ from buildview.console import Console
 
 
 class BuildDisplay(Static):
-    DEFAULT_CSS = """
-    BuildDisplay {
-        width: 1fr;
-        height: 1fr;
-    }
-    """
-
     build = reactive[dict | None](None)
     changesets = reactive[dict | None](None)
 
@@ -24,8 +17,10 @@ class BuildDisplay(Static):
 
     def compose(self) -> ComposeResult:
         console = Console(client=self.client)
+        tree = Tree(id="build_tree", label="No build")
+        tree.border_title = "Stages"
         yield Vertical(
-            Tree(id="build_tree", label="No build"),
+            tree,
             console,
         )
 

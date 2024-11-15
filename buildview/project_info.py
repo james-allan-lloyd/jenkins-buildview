@@ -7,15 +7,7 @@ from typing import Optional
 
 
 class ProjectInfo(Static):
-    DEFAULT_CSS = """
-    ProjectInfo {
-        height: 3;
-        width: 1fr;
-        dock: top;
-        border: solid white;
-    }
-    """
-    project: Optional[dict] = reactive(None)
+    project = reactive[Optional[dict]](None)
 
     def compose(self) -> ComposeResult:
         yield Horizontal(
@@ -23,9 +15,9 @@ class ProjectInfo(Static):
             Label("Server Name", id="serverName"),
         )
 
-    def watch_project(self, old, new):
-        projectName = self.query_one("#projectName")
-        serverName = self.query_one("#serverName")
+    def watch_project(self, _, new):
+        projectName = self.query_one("#projectName", Label)
+        serverName = self.query_one("#serverName", Label)
         if new is None:
             projectName.update("no project")
             serverName.update("")

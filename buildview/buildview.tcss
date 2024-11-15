@@ -1,8 +1,9 @@
+/* vim: ft=css
+ */
 ProjectInfo {
-    height: 3;
+    height: 1;
     width: 1fr;
     dock: top;
-    border: solid white;
 }
 
 ProjectInfo #projectName {
@@ -15,8 +16,16 @@ BuildDisplay {
 }
 
 BuildDisplay #build_tree {
-    padding: 1 1 1 1;
+    /* padding: 1 1 1 1; */
     height: auto;
+    border: round grey;
+    border-title-align: right;
+}
+
+BuildDisplay #build_tree :focus {
+    /* padding: 1 1 1 1; */
+    border: round orange;
+    background: black;
 }
 
 BuildDisplay #console {
@@ -24,11 +33,12 @@ BuildDisplay #console {
 }
 
 BuildDisplay #console RichLog {
-    border: solid grey;
+    border-title-align: right;
+    border: round grey;
     height: 1fr;
 }
 
 BuildDisplay #console RichLog :focus {
-    border: solid orange;
+    border: round orange;
     height: 1fr;
 }
