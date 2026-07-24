@@ -1,4 +1,4 @@
-from textual import work
+from textual import events, work
 from textual.app import ComposeResult
 from textual.containers import Vertical
 from textual.screen import Screen
@@ -57,12 +57,28 @@ class JobBrowserScreen(Screen):
         if event.input.id == "job_search":
             self._refresh_list(filter_jobs(self._all_jobs, event.value))
 
+    def _focus_first_option(self) -> None:
+        option_list = self.query_one("#job_list", OptionList)
+        if option_list.option_count > 0:
+            option_list.highlighted = 0
+            option_list.focus()
+
+    def on_key(self, event: events.Key) -> None:
+        search = self.query_one("#job_search", Input)
+        option_list = self.query_one("#job_list", OptionList)
+
+        if event.key == "down" and search.has_focus:
+            event.stop()
+            event.prevent_default()
+            self._focus_first_option()
+        elif event.key == "up" and option_list.has_focus and option_list.highlighted == 0:
+            event.stop()
+            event.prevent_default()
+            search.focus()
+
     def on_input_submitted(self, event: Input.Submitted) -> None:
         if event.input.id == "job_search":
-            option_list = self.query_one("#job_list", OptionList)
-            if option_list.option_count > 0:
-                option = option_list.get_option_at_index(0)
-                self.app.handle_job_selected(option.id)
+            self._focus_first_option()
 
     def on_option_list_option_selected(self, event: OptionList.OptionSelected) -> None:
         self.app.handle_job_selected(event.option.id)

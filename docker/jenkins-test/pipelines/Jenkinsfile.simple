@@ -1,0 +1,25 @@
+pipeline {
+    agent any
+    stages {
+        stage('Build') {
+            steps {
+                echo 'Building application...'
+                sleep 2
+            }
+        }
+        stage('Test') {
+            steps {
+                echo 'Running tests...'
+                sleep 2
+                echo 'Tests passed'
+            }
+        }
+        stage('Deploy') {
+            steps {
+                echo 'Deploying build artifact...'
+                sleep 2
+                echo 'Deploy complete'
+            }
+        }
+    }
+}
