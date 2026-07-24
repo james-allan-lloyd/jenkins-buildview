@@ -1,0 +1,63 @@
+pipeline {
+    agent any
+    stages {
+        stage('Checkout') {
+            steps {
+                echo 'Checking out source...'
+                sleep 2
+            }
+        }
+        stage('Build and Test') {
+            stages {
+                stage('Build') {
+                    steps {
+                        echo 'Building application...'
+                        sleep 3
+                    }
+                }
+                stage('Test Suite') {
+                    parallel {
+                        stage('Unit Tests') {
+                            steps {
+                                echo 'Running unit tests...'
+                                sleep 4
+                                echo 'Unit tests passed'
+                            }
+                        }
+                        stage('Integration Tests') {
+                            stages {
+                                stage('Provision Environment') {
+                                    steps {
+                                        echo 'Provisioning integration environment...'
+                                        sleep 2
+                                    }
+                                }
+                                stage('Run Integration Suite') {
+                                    steps {
+                                        echo 'Running integration suite...'
+                                        sleep 5
+                                        echo 'Integration tests passed'
+                                    }
+                                }
+                            }
+                        }
+                        stage('Lint') {
+                            steps {
+                                echo 'Running linter...'
+                                sleep 3
+                                echo 'Lint clean'
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        stage('Deploy') {
+            steps {
+                echo 'Deploying build artifact...'
+                sleep 2
+                echo 'Deploy complete'
+            }
+        }
+    }
+}
