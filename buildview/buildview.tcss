@@ -42,3 +42,53 @@ BuildDisplay #console RichLog :focus {
     border: round orange;
     height: 1fr;
 }
+
+LoginScreen {
+    align: center middle;
+}
+
+#login_form {
+    width: 60;
+    height: auto;
+    border: round grey;
+    padding: 1 2;
+}
+
+#login_title {
+    text-style: bold;
+    height: 1;
+    content-align: center middle;
+}
+
+#login_error {
+    color: red;
+    height: 1;
+}
+
+#login_form Input {
+    margin-bottom: 1;
+}
+
+JobBrowserScreen #browser_form {
+    height: 1fr;
+    padding: 1 2;
+}
+
+#browser_title {
+    text-style: bold;
+    height: 1;
+}
+
+#browser_status {
+    color: grey;
+    height: 1;
+}
+
+#job_search {
+    margin-bottom: 1;
+}
+
+#job_list {
+    height: 1fr;
+    border: round grey;
+}
