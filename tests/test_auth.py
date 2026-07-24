@@ -1,9 +1,10 @@
 import json
+import stat
 
 import httpx
 import pytest
 
-from buildview.auth import CredentialStore, Credentials, validate
+from buildview.auth import CredentialStore, Credentials, StorageBackend, validate
 
 
 class FakeKeyring:
@@ -18,6 +19,20 @@ class FakeKeyring:
 
     def delete_password(self, service, account):
         del self.store[(service, account)]
+
+
+class BrokenKeyring:
+    """Simulates a headless/SSH-only environment with no Secret Service
+    provider for keyring to talk to."""
+
+    def get_password(self, service, account):
+        raise RuntimeError("No recommended backend was available.")
+
+    def set_password(self, service, account, password):
+        raise RuntimeError("No recommended backend was available.")
+
+    def delete_password(self, service, account):
+        raise RuntimeError("No recommended backend was available.")
 
 
 def make_store(tmp_path, keyring_backend=None):
@@ -35,7 +50,38 @@ def test_save_then_load_round_trips_credentials(tmp_path):
     store = make_store(tmp_path)
     creds = Credentials(server="https://jenkins.example.com", username="alice", token="secret")
 
+    backend = store.save(creds)
+    loaded = store.load()
+
+    assert backend is StorageBackend.KEYRING
+    assert loaded == creds
+
+
+def test_save_falls_back_to_file_when_keyring_unavailable(tmp_path):
+    store = make_store(tmp_path, keyring_backend=BrokenKeyring())
+    creds = Credentials(server="https://jenkins.example.com", username="alice", token="secret")
+
+    backend = store.save(creds)
+
+    assert backend is StorageBackend.FALLBACK_FILE
+    assert store.token_fallback_path.read_text() == "secret"
+
+
+def test_fallback_token_file_is_only_readable_by_owner(tmp_path):
+    store = make_store(tmp_path, keyring_backend=BrokenKeyring())
+    creds = Credentials(server="https://jenkins.example.com", username="alice", token="secret")
+
     store.save(creds)
+
+    mode = stat.S_IMODE(store.token_fallback_path.stat().st_mode)
+    assert mode == stat.S_IRUSR | stat.S_IWUSR
+
+
+def test_load_reads_token_from_fallback_file(tmp_path):
+    store = make_store(tmp_path, keyring_backend=BrokenKeyring())
+    creds = Credentials(server="https://jenkins.example.com", username="alice", token="secret")
+    store.save(creds)
+
     loaded = store.load()
 
     assert loaded == creds
@@ -68,6 +114,17 @@ def test_clear_removes_config_and_token(tmp_path):
     store.clear()
 
     assert not store.path.exists()
+    assert store.load() is None
+
+
+def test_clear_removes_fallback_token_file(tmp_path):
+    store = make_store(tmp_path, keyring_backend=BrokenKeyring())
+    creds = Credentials(server="https://jenkins.example.com", username="alice", token="secret")
+    store.save(creds)
+
+    store.clear()
+
+    assert not store.token_fallback_path.exists()
     assert store.load() is None
 
 

@@ -1,12 +1,19 @@
 import json
 import os
+import stat
 from dataclasses import dataclass
+from enum import Enum
 from pathlib import Path
 
 import httpx
 import keyring as default_keyring_backend
 
 SERVICE_NAME = "jenkins-buildview"
+
+
+class StorageBackend(Enum):
+    KEYRING = "keyring"
+    FALLBACK_FILE = "fallback_file"
 
 
 @dataclass
@@ -44,11 +51,21 @@ async def validate(client: httpx.AsyncClient) -> bool:
 
 class CredentialStore:
     """Persists the Jenkins server/username in a config file and the API
-    token in the OS keychain (via `keyring`)."""
+    token in the OS keychain (via `keyring`).
+
+    Some environments (e.g. headless/SSH-only Linux servers) have no
+    Secret Service provider for `keyring` to talk to. When that happens,
+    the token falls back to a permission-restricted file alongside the
+    config, rather than silently failing to persist at all.
+    """
 
     def __init__(self, path: Path | None = None, keyring_backend=None):
         self.path = path or config_path()
         self._keyring = keyring_backend or default_keyring_backend
+
+    @property
+    def token_fallback_path(self) -> Path:
+        return self.path.parent / "token"
 
     def _account(self, server: str, username: str) -> str:
         return f"{server}|{username}"
@@ -67,31 +84,50 @@ class CredentialStore:
         if not server or not username:
             return None
 
+        token = None
         try:
             token = self._keyring.get_password(SERVICE_NAME, self._account(server, username))
         except Exception:
-            return None
+            pass
+
+        if not token and self.token_fallback_path.exists():
+            try:
+                token = self.token_fallback_path.read_text().strip() or None
+            except OSError:
+                token = None
 
         if not token:
             return None
 
         return Credentials(server=server, username=username, token=token)
 
-    def save(self, credentials: Credentials) -> None:
+    def save(self, credentials: Credentials) -> StorageBackend:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self.path.write_text(
             json.dumps({"server": credentials.server, "username": credentials.username})
         )
-        self._keyring.set_password(
-            SERVICE_NAME,
-            self._account(credentials.server, credentials.username),
-            credentials.token,
-        )
+
+        try:
+            self._keyring.set_password(
+                SERVICE_NAME,
+                self._account(credentials.server, credentials.username),
+                credentials.token,
+            )
+        except Exception:
+            self.token_fallback_path.write_text(credentials.token)
+            self.token_fallback_path.chmod(stat.S_IRUSR | stat.S_IWUSR)
+            return StorageBackend.FALLBACK_FILE
+
+        if self.token_fallback_path.exists():
+            self.token_fallback_path.unlink()
+        return StorageBackend.KEYRING
 
     def clear(self) -> None:
         existing = self.load()
         if self.path.exists():
             self.path.unlink()
+        if self.token_fallback_path.exists():
+            self.token_fallback_path.unlink()
         if existing is not None:
             try:
                 self._keyring.delete_password(
