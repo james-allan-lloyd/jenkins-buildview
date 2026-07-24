@@ -20,15 +20,31 @@ Make sure everything installs and is available:
 poetry install
 ```
 
-Generate a Jenkins user token, then add a file `.env` to the Root directory
-with the following:
+Generate a Jenkins user token, then run the app with no arguments:
+
+```shell
+poetry run jenkins-buildview
+```
+
+On first run you'll be prompted to log in with your Jenkins server URL,
+username, and API token. The token is validated against the server and then
+stored securely in your OS keychain (via `keyring`); the server URL and
+username are cached in `~/.config/jenkins-buildview/config.json`. On
+subsequent runs, if the stored token is still valid you'll skip straight to
+a searchable list of jobs on that server &mdash; type to filter, then select
+a job (or press enter) to start following its builds. Press `escape` while
+watching a build to go back to the job list.
+
+### Direct URL mode
+
+You can still jump straight to tailing a specific job, bypassing the login
+and browsing screens, by passing its URL as an argument and providing
+credentials via a `.env` file in the root directory:
 
 ```shell
 USERNAME=<YOUR_JENKINS_USERNAME>
 TOKEN=<YOUR_JENKINS_TOKEN>
 ```
-
-Then you should be able to run it and follow the builds for a given job:
 
 ```shell
 poetry run jenkins-buildview https://jenkins.example.com/job/organisation/job/pipeline-job/job/branch-name

@@ -1,18 +1,15 @@
-import httpx
-import sys
 import os
-import textual
-import asyncio
-from textual import work
-from textual.app import App, ComposeResult
-from textual.widgets import Footer, RichLog, Tree
-from textual.reactive import reactive
-from urllib.parse import urljoin, urlparse
-import json
+import sys
+from urllib.parse import urlparse
 
-from buildview.build_display import BuildDisplay
-from buildview.console import Console
-from buildview.project_info import ProjectInfo
+import httpx
+import textual
+from textual.app import App
+
+from buildview.auth import CredentialStore, Credentials, build_http_client, validate
+from buildview.screens.build_watch import BuildWatchScreen
+from buildview.screens.job_browser import JobBrowserScreen
+from buildview.screens.login import LoginScreen
 
 
 class JenkinsBuildViewApp(App):
@@ -21,231 +18,75 @@ class JenkinsBuildViewApp(App):
     BINDINGS = [
         ("d", "toggle_dark", "Toggle dark mode"),
         ("q", "quit", "Quit"),
-        ("b", "build", "Build"),
     ]
 
     CSS_PATH = "buildview.tcss"
 
-    url = reactive("")
-    latest_build_url = reactive("")
-
-    def __init__(self):
-        from dotenv import load_dotenv
-
+    def __init__(self, direct_url: str | None = None):
         super().__init__()
-
-        load_dotenv()
-        auth = (os.environ["USERNAME"], os.environ["TOKEN"])
-        self.client = httpx.AsyncClient(
-            verify="/etc/ssl/certs/ca-bundle.crt",
-            auth=auth,
-            headers={
-                "Accept": "application/json, text/javascript, */*; q=0.01",
-                "Accept-Encoding": "gzip, deflate, br, zstd",
-            },
-        )
-        self.positions = {}
-
-    def compose(self) -> ComposeResult:
-        """Create child widgets for the app."""
-        yield Footer()
-        yield ProjectInfo(id="project_info")
-        yield BuildDisplay(id="build_display", client=self.client)
-
-    def watch_url(self, _, new) -> None:
-        if new is not None:
-            parsed_url = urlparse(new)
-            self.server = parsed_url.hostname
-            if parsed_url.port:
-                self.server += ":" + str(parsed_url.port)
+        self.direct_url = direct_url
+        self.credential_store = CredentialStore()
+        self.client: httpx.AsyncClient | None = None
+        self.server_url: str | None = None
 
     async def on_mount(self) -> None:
-        self.update_latest_build()
+        if self.direct_url:
+            await self._start_direct_mode()
+        else:
+            await self._start_login_flow()
 
-    def scroll_console_to_node(self, node):
-        position = self.positions.get(node.data["name"])
-        self.query_one("#console RichLog", RichLog).scroll_to(0, position, duration=1)
+    async def _start_direct_mode(self) -> None:
+        """Legacy behaviour: watch a single job URL passed on the command
+        line, authenticating from USERNAME/TOKEN in the environment/.env."""
+        from dotenv import load_dotenv
 
-        # def on_tree_node_highlighted(self, message):
-        #     if message.node.data is not None:
-        #         # self.current_stage_url = urljoin(
-        #         #     self.latest_build_url, message.node.data["_links"]["self"]["href"]
-        #         # )
-        #         if self.focused == self.query_one("#build_tree"):
-        #             self.scroll_console_to_node(message.node)
-        #
+        load_dotenv()
+        username = os.environ["USERNAME"]
+        token = os.environ["TOKEN"]
+        parsed = urlparse(self.direct_url)
+        server = f"{parsed.scheme}://{parsed.netloc}"
 
-    def set_current_node_by_label(self, label):
-        tree = self.query_one("#build_tree", Tree)
-        nodes = list(
-            filter(
-                lambda x: x.data is not None and x.data["name"] == label,
-                tree.root.children,
-            )
-        )
-        tree.move_cursor(nodes[0])
+        self.server_url = server
+        self.client = build_http_client(server, username, token)
+        self.push_screen(BuildWatchScreen(self.direct_url, self.client, allow_back=False))
 
-    def on_tree_node_selected(self, message):
-        if message.node.data is not None:
-            tree = self.query_one("#build_tree")
-            self.query_one("#console", Console).push_focus(tree)
-            self.scroll_console_to_node(message.node)
+    async def _start_login_flow(self) -> None:
+        credentials = self.credential_store.load()
+        if credentials is not None:
+            client = build_http_client(credentials.server, credentials.username, credentials.token)
+            if await validate(client):
+                self.client = client
+                self.server_url = credentials.server
+                self.push_screen(JobBrowserScreen())
+                return
+            await client.aclose()
 
-    def on_console_line_changed(self, message):
-        label = None
-        # textual.log(message.line)
-        sorted_positions = sorted(self.positions.items(), key=lambda p: p[1])
-        # textual.log(sorted_positions)
-        for position in sorted_positions:
-            if label is None or message.line >= position[1]:
-                label = position[0]
-            else:
-                break
-        self.set_current_node_by_label(label)
+        self.push_screen(LoginScreen())
+
+    def handle_login(self, credentials: Credentials, client: httpx.AsyncClient) -> None:
+        self.client = client
+        self.server_url = credentials.server
+        try:
+            self.credential_store.save(credentials)
+        except Exception as exc:
+            textual.log(f"Could not persist credentials: {exc}")
+        self.pop_screen()
+        self.push_screen(JobBrowserScreen())
+
+    def handle_job_selected(self, job_url: str) -> None:
+        self.push_screen(BuildWatchScreen(job_url, self.client))
 
     def action_toggle_dark(self) -> None:
         """An action to toggle dark mode."""
         self.dark = not self.dark
 
-    @work(exclusive=True, exit_on_error=True, group="latest_build")
-    async def update_latest_build(self) -> None:
-        exiting = False
-        while not exiting:
-            job_data = await self.client.get(
-                self.url + "/api/json?tree=lastBuild[url],fullDisplayName"
-            )
-            try:
-                job_data = job_data.json()
-            except json.JSONDecodeError:
-                raise Exception(f"Couldn't decode data: {job_data.content}")
-
-            project_info = self.query_one("#project_info", ProjectInfo)
-            project_info.project = {
-                "name": job_data["fullDisplayName"],
-                "server": self.server,
-            }
-
-            if job_data["lastBuild"]["url"] != self.latest_build_url:
-                self.latest_build_url = job_data["lastBuild"]["url"]
-                self.update_build()
-
-            await asyncio.sleep(1)
-
-    async def watch_stage(self, stage):
-        pending = False
-        node_index = 0
-        startByte = 0
-        while True:
-            response = await self.client.get(
-                urljoin(self.latest_build_url, stage["_links"]["self"]["href"])
-            )
-            stage_data = response.json()
-            # textual.log(stage_data)
-            if node_index >= len(stage_data["stageFlowNodes"]):
-                break
-            node = stage_data["stageFlowNodes"][node_index]
-            pending = True
-            status_url = urljoin(self.latest_build_url, node["_links"]["self"]["href"])
-            response = await self.client.get(status_url)
-            node = response.json()
-
-            log_url = urljoin(
-                self.latest_build_url,
-                # "pipeline-console/consoleOutput",
-                "pipeline-overview/log",
-            )
-            textual.log(log_url)
-            response = await self.client.get(
-                log_url,
-                params={"nodeId": node["id"], "startByte": startByte},
-            )
-            textual.log(response)
-            # log_data = response.json()["data"]
-            text = response.text
-
-            # textual.log(node)
-            pending = stage_data["status"] in ["IN_PROGRESS", "PENDING"]
-            # startByte = log_data["endByte"]
-            self.query_one("#console", Console).append_html(text)
-
-            if pending:
-                textual.log("sleeping, waiting for logs")
-                await asyncio.sleep(1)
-                textual.log("awake")
-            else:
-                node_index += 1
-                startByte = 0
-
-        textual.log("Stage finished: " + stage["name"])
-
-    @work(exclusive=True, group="build_update")
-    async def update_build(self) -> None:
-        try:
-            console = self.query_one("#console", Console)
-            console.clear()
-
-            while True:
-                response = await self.client.get(
-                    self.latest_build_url + "/wfapi/describe"
-                )
-                build_display = self.query_one("#build_display", BuildDisplay)
-                build = response.json()
-                build_display.build = build
-                await asyncio.sleep(1)
-                if len(build["stages"]) > 0:
-                    break
-
-            stages: list = build["stages"]
-            self.positions = {}
-            known_stages = set(s["name"] for s in stages)
-
-            while len(stages):
-                stage = stages.pop(0)
-                self.positions[stage["name"]] = console.current_position
-                console.append("[yellow]--- " + stage["name"] + " ---[/yellow]")
-
-                self.set_current_node_by_label(stage["name"])
-
-                await self.watch_stage(stage)
-
-                response = await self.client.get(
-                    self.latest_build_url + "/wfapi/describe"
-                )
-                build = response.json()
-                build_display.build = build
-                stages.extend(
-                    filter(lambda s: s["name"] not in known_stages, build["stages"])
-                )
-                known_stages = set(s["name"] for s in build["stages"])
-                while build["status"] in ["IN_PROGRESS"] and len(stages) == 0:
-                    await asyncio.sleep(1)
-                    response = await self.client.get(
-                        self.latest_build_url + "/wfapi/describe"
-                    )
-                    build = response.json()
-                    build_display.build = build
-                    stages.extend(
-                        filter(lambda s: s["name"] not in known_stages, build["stages"])
-                    )
-                    known_stages = set(s["name"] for s in build["stages"])
-
-        except asyncio.CancelledError as e:
-            textual.log("Cancelled with " + str(e))
-            raise
-        textual.log("Build finished")
-
-    async def action_quit(self):
+    async def action_quit(self) -> None:
         self.exit()
-
-    async def action_build(self) -> None:
-        await self.client.post(self.url + "/build?delay=0sec")
-
-
-app = JenkinsBuildViewApp()
-app.url = sys.argv[1]
 
 
 def main():
+    direct_url = sys.argv[1] if len(sys.argv) > 1 else None
+    app = JenkinsBuildViewApp(direct_url=direct_url)
     app.run()
 
 
