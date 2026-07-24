@@ -84,9 +84,10 @@ class JenkinsBuildViewApp(App):
         self.exit()
 
 
+app = JenkinsBuildViewApp(direct_url=sys.argv[1] if len(sys.argv) > 1 else None)
+
+
 def main():
-    direct_url = sys.argv[1] if len(sys.argv) > 1 else None
-    app = JenkinsBuildViewApp(direct_url=direct_url)
     app.run()
 
 
