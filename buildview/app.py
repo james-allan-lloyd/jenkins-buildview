@@ -3,7 +3,6 @@ import sys
 from urllib.parse import urlparse
 
 import httpx
-import textual
 from textual.app import App
 
 from buildview.auth import CredentialStore, Credentials, build_http_client, validate
@@ -69,7 +68,12 @@ class JenkinsBuildViewApp(App):
         try:
             self.credential_store.save(credentials)
         except Exception as exc:
-            textual.log(f"Could not persist credentials: {exc}")
+            self.notify(
+                f"{exc}\n\nYou'll need to log in again next time.",
+                title="Could not save credentials securely",
+                severity="warning",
+                timeout=10,
+            )
         self.pop_screen()
         self.push_screen(JobBrowserScreen())
 
