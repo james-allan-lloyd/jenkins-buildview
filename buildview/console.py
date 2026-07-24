@@ -46,7 +46,7 @@ class HtmlToRichParser(HTMLParser):
             if attr[0] == "style":
                 self._flush_current_text()
                 style = self.parse_style(attr[1])
-                self.style_stack.append(style["color"])
+                self.style_stack.append(style["color"] if "color" in style else None)
                 has_style = True
 
         if not has_style:

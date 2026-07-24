@@ -151,19 +151,22 @@ class JenkinsBuildViewApp(App):
 
             log_url = urljoin(
                 self.latest_build_url,
-                "pipeline-console/consoleOutput",
+                # "pipeline-console/consoleOutput",
+                "pipeline-overview/log",
             )
-            # textual.log(log_url)
+            textual.log(log_url)
             response = await self.client.get(
                 log_url,
                 params={"nodeId": node["id"], "startByte": startByte},
             )
-            log_data = response.json()["data"]
+            textual.log(response)
+            # log_data = response.json()["data"]
+            text = response.text
 
             # textual.log(node)
             pending = stage_data["status"] in ["IN_PROGRESS", "PENDING"]
-            startByte = log_data["endByte"]
-            self.query_one("#console", Console).append_html(log_data.get("text", ""))
+            # startByte = log_data["endByte"]
+            self.query_one("#console", Console).append_html(text)
 
             if pending:
                 textual.log("sleeping, waiting for logs")
@@ -214,6 +217,17 @@ class JenkinsBuildViewApp(App):
                     filter(lambda s: s["name"] not in known_stages, build["stages"])
                 )
                 known_stages = set(s["name"] for s in build["stages"])
+                while build["status"] in ["IN_PROGRESS"] and len(stages) == 0:
+                    await asyncio.sleep(1)
+                    response = await self.client.get(
+                        self.latest_build_url + "/wfapi/describe"
+                    )
+                    build = response.json()
+                    build_display.build = build
+                    stages.extend(
+                        filter(lambda s: s["name"] not in known_stages, build["stages"])
+                    )
+                    known_stages = set(s["name"] for s in build["stages"])
 
         except asyncio.CancelledError as e:
             textual.log("Cancelled with " + str(e))
