@@ -67,6 +67,14 @@ poetry run textual console -x SYSTEM -x EVENT -x DEBUG \
 And then start the application like this:
 
 ```shell
+poetry run textual run --dev buildview.app
+```
+
+To jump straight to tailing a specific job instead of the login/browse
+screens (see [Direct URL mode](#direct-url-mode)), pass its URL as an
+argument:
+
+```shell
 poetry run textual run --dev buildview.app <BUILD_URL>
 ```
 
