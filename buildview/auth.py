@@ -1,5 +1,6 @@
 import json
 import os
+import ssl
 import stat
 from dataclasses import dataclass
 from enum import Enum
@@ -7,6 +8,7 @@ from pathlib import Path
 
 import httpx
 import keyring as default_keyring_backend
+import truststore
 
 SERVICE_NAME = "jenkins-buildview"
 
@@ -32,7 +34,7 @@ def config_path() -> Path:
 def build_http_client(server: str, username: str, token: str) -> httpx.AsyncClient:
     return httpx.AsyncClient(
         base_url=server,
-        verify="/etc/ssl/certs/ca-bundle.crt",
+        verify=truststore.SSLContext(ssl.PROTOCOL_TLS_CLIENT),
         auth=(username, token),
         headers={
             "Accept": "application/json, text/javascript, */*; q=0.01",
