@@ -70,11 +70,11 @@ class HtmlToRichParser(HTMLParser):
         pass
 
 
-def log_to_rich_text(input: str) -> str:
+def log_to_rich_text(input: str) -> Text:
     parser = HtmlToRichParser()
     parser.feed(input)
 
-    return str(parser.finalized_output())
+    return parser.finalized_output()
 
 
 class Console(Static):
@@ -113,7 +113,7 @@ class Console(Static):
         rich_log.clear()
         self.current_position = rich_log.virtual_size.height
 
-    def append(self, text: str) -> None:
+    def append(self, text: str | Text) -> None:
         if len(text) == 0:
             return
         rich_log = self.query_one(RichLog)
