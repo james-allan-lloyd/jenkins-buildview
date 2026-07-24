@@ -6,6 +6,33 @@ import arrow
 
 from buildview.console import Console
 
+# Colours for the stages/tree API's "state" values (queued/running/paused
+# are all "still active", the rest are terminal).
+STAGE_STYLE = {
+    "running": "[white bold]",
+    "queued": "[white bold]",
+    "paused": "[white bold]",
+    "success": "[green]",
+    "unstable": "[yellow]",
+    "failure": "[red]",
+    "aborted": "[red]",
+}
+
+
+def _stage_label(stage: dict) -> str:
+    return f"{STAGE_STYLE.get(stage['state'], '')}{stage['name']} {stage['state']}"
+
+
+def _sync_stage_nodes(tree_node, stages: list[dict]) -> None:
+    for i, stage in enumerate(stages):
+        if i < len(tree_node.children):
+            child = tree_node.children[i]
+            child.label = _stage_label(stage)
+            child.data = stage
+        else:
+            child = tree_node.add(_stage_label(stage), stage, expand=True)
+        _sync_stage_nodes(child, stage["children"])
+
 
 class BuildDisplay(Static):
     build = reactive[dict | None](None)
@@ -35,13 +62,9 @@ class BuildDisplay(Static):
             return
 
         if "endTimeMillis" in build:
-            status_time = arrow.get(build["endTimeMillis"]).humanize(
-                only_distance=True
-            )  # startTimeMillis, durationMills
+            status_time = arrow.get(build["endTimeMillis"]).humanize(only_distance=True)
         elif "startTimeMillis" in build:
-            status_time = arrow.get(build["endTimeMillis"]).humanize(
-                only_distance=True
-            )  # startTimeMillis, durationMills
+            status_time = arrow.get(build["startTimeMillis"]).humanize(only_distance=True)
         else:
             status_time = ""
 
@@ -73,19 +96,6 @@ class BuildDisplay(Static):
                 tree.root.remove_children()
             self.update_root_label(tree)
             tree.root.expand()
-            for i, stage in enumerate(new_build["stages"]):
-                label = f"{stage['name']} {stage['status']} {stage['error']['message'] if 'error' in stage else ''}"
-                match stage["status"]:
-                    case "SUCCESS":
-                        label = "[green]" + label
-                    case "FAILED":
-                        label = "[red]" + label
-                    case "IN_PROGRESS":
-                        label = "[white bold]" + label
-
-                if i < len(tree.root.children):
-                    tree.root.children[i].label = label
-                else:
-                    tree.root.add_leaf(label, stage)
+            _sync_stage_nodes(tree.root, new_build["stages"])
         else:
             tree.root.label = "No build"

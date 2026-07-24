@@ -1,6 +1,6 @@
 import asyncio
 import json
-from urllib.parse import urljoin, urlparse
+from urllib.parse import urlparse
 
 import httpx
 import textual
@@ -13,6 +13,32 @@ from textual.widgets import Footer, RichLog, Tree
 from buildview.build_display import BuildDisplay
 from buildview.console import Console
 from buildview.project_info import ProjectInfo
+
+# Stage/step "state" values (from the pipeline-graph-view stages API) that
+# mean a node is still active and its log/status needs to keep being polled.
+ACTIVE_STATES = {"queued", "running", "paused"}
+
+
+def _leaf_stages(stages: list[dict]):
+    """Depth-first walk of a stages/tree response, yielding only stages with
+    no children -- those are the ones that actually run steps and have their
+    own console log. Container stages (nested or parallel parents) are only
+    used for display."""
+    for stage in stages:
+        if stage["children"]:
+            yield from _leaf_stages(stage["children"])
+        else:
+            yield stage
+
+
+def _find_stage(stages: list[dict], stage_id: str) -> dict | None:
+    for stage in stages:
+        if stage["id"] == stage_id:
+            return stage
+        found = _find_stage(stage["children"], stage_id)
+        if found is not None:
+            return found
+    return None
 
 
 class BuildWatchScreen(Screen):
@@ -55,18 +81,26 @@ class BuildWatchScreen(Screen):
             self.app.pop_screen()
 
     def scroll_console_to_node(self, node):
-        position = self.positions.get(node.data["name"])
-        self.query_one("#console RichLog", RichLog).scroll_to(0, position, duration=1)
+        position = self.positions.get(node.data["id"])
+        if position is not None:
+            self.query_one("#console RichLog", RichLog).scroll_to(0, position, duration=1)
 
-    def set_current_node_by_label(self, label):
-        tree = self.query_one("#build_tree", Tree)
-        nodes = list(
-            filter(
-                lambda x: x.data is not None and x.data["name"] == label,
-                tree.root.children,
-            )
-        )
-        tree.move_cursor(nodes[0])
+    def _find_tree_node(self, node_id: str):
+        def walk(node):
+            for child in node.children:
+                if child.data is not None and child.data["id"] == node_id:
+                    return child
+                found = walk(child)
+                if found is not None:
+                    return found
+            return None
+
+        return walk(self.query_one("#build_tree", Tree).root)
+
+    def set_current_node_by_id(self, node_id: str) -> None:
+        node = self._find_tree_node(node_id)
+        if node is not None:
+            self.query_one("#build_tree", Tree).move_cursor(node)
 
     def on_tree_node_selected(self, message):
         if message.node.data is not None:
@@ -75,14 +109,15 @@ class BuildWatchScreen(Screen):
             self.scroll_console_to_node(message.node)
 
     def on_console_line_changed(self, message):
-        label = None
+        node_id = None
         sorted_positions = sorted(self.positions.items(), key=lambda p: p[1])
         for position in sorted_positions:
-            if label is None or message.line >= position[1]:
-                label = position[0]
+            if node_id is None or message.line >= position[1]:
+                node_id = position[0]
             else:
                 break
-        self.set_current_node_by_label(label)
+        if node_id is not None:
+            self.set_current_node_by_id(node_id)
 
     @work(exclusive=True, exit_on_error=True, group="latest_build")
     async def update_latest_build(self) -> None:
@@ -108,45 +143,54 @@ class BuildWatchScreen(Screen):
 
             await asyncio.sleep(1)
 
-    async def watch_stage(self, stage):
-        pending = False
-        node_index = 0
-        startByte = 0
+    async def _fetch_build_view(self) -> dict:
+        """Combine the core Jenkins build API (name/status/timing, which the
+        pipeline-graph-view plugin doesn't provide) with its stages/tree
+        endpoint (stage structure) into the shape BuildDisplay expects."""
+        build_response = await self.client.get(
+            self.latest_build_url + "/api/json",
+            params={"tree": "id,displayName,result,building,timestamp,duration"},
+        )
+        build_json = build_response.json()
+
+        tree_response = await self.client.get(self.latest_build_url + "/stages/tree")
+        tree_json = tree_response.json()["data"]
+
+        status = "IN_PROGRESS" if build_json["building"] else (build_json["result"] or "UNKNOWN")
+
+        build_view = {
+            "id": build_json["id"],
+            "name": build_json["displayName"],
+            "status": status,
+            "startTimeMillis": build_json["timestamp"],
+            "stages": tree_json["stages"],
+            "complete": tree_json["complete"],
+        }
+        if not build_json["building"]:
+            build_view["endTimeMillis"] = build_json["timestamp"] + build_json["duration"]
+        return build_view
+
+    async def watch_stage(self, stage: dict) -> None:
+        node_id = stage["id"]
+        last_length = 0
         while True:
             response = await self.client.get(
-                urljoin(self.latest_build_url, stage["_links"]["self"]["href"])
+                self.latest_build_url + "/stages/log",
+                params={"nodeId": node_id},
             )
-            stage_data = response.json()
-            if node_index >= len(stage_data["stageFlowNodes"]):
-                break
-            node = stage_data["stageFlowNodes"][node_index]
-            pending = True
-            status_url = urljoin(self.latest_build_url, node["_links"]["self"]["href"])
-            response = await self.client.get(status_url)
-            node = response.json()
-
-            log_url = urljoin(
-                self.latest_build_url,
-                "pipeline-overview/log",
-            )
-            textual.log(log_url)
-            response = await self.client.get(
-                log_url,
-                params={"nodeId": node["id"], "startByte": startByte},
-            )
-            textual.log(response)
             text = response.text
+            if len(text) > last_length:
+                self.query_one("#console", Console).append(text[last_length:])
+                last_length = len(text)
 
-            pending = stage_data["status"] in ["IN_PROGRESS", "PENDING"]
-            self.query_one("#console", Console).append_html(text)
+            tree_response = await self.client.get(self.latest_build_url + "/stages/tree")
+            current = _find_stage(tree_response.json()["data"]["stages"], node_id)
+            if current is None or current["state"] not in ACTIVE_STATES:
+                break
 
-            if pending:
-                textual.log("sleeping, waiting for logs")
-                await asyncio.sleep(1)
-                textual.log("awake")
-            else:
-                node_index += 1
-                startByte = 0
+            textual.log("sleeping, waiting for logs")
+            await asyncio.sleep(1)
+            textual.log("awake")
 
         textual.log("Stage finished: " + stage["name"])
 
@@ -155,51 +199,42 @@ class BuildWatchScreen(Screen):
         try:
             console = self.query_one("#console", Console)
             console.clear()
+            build_display = self.query_one("#build_display", BuildDisplay)
 
             while True:
-                response = await self.client.get(
-                    self.latest_build_url + "/wfapi/describe"
-                )
-                build_display = self.query_one("#build_display", BuildDisplay)
-                build = response.json()
+                build = await self._fetch_build_view()
                 build_display.build = build
-                await asyncio.sleep(1)
                 if len(build["stages"]) > 0:
                     break
+                await asyncio.sleep(1)
 
-            stages: list = build["stages"]
             self.positions = {}
-            known_stages = set(s["name"] for s in stages)
+            processed_ids: set[str] = set()
 
-            while len(stages):
-                stage = stages.pop(0)
-                self.positions[stage["name"]] = console.current_position
+            while True:
+                build = await self._fetch_build_view()
+                build_display.build = build
+
+                pending = [
+                    stage
+                    for stage in _leaf_stages(build["stages"])
+                    if stage["id"] not in processed_ids
+                ]
+
+                if not pending:
+                    if build["complete"]:
+                        break
+                    await asyncio.sleep(1)
+                    continue
+
+                stage = pending[0]
+                self.positions[stage["id"]] = console.current_position
                 console.append("[yellow]--- " + stage["name"] + " ---[/yellow]")
 
-                self.set_current_node_by_label(stage["name"])
+                self.set_current_node_by_id(stage["id"])
 
                 await self.watch_stage(stage)
-
-                response = await self.client.get(
-                    self.latest_build_url + "/wfapi/describe"
-                )
-                build = response.json()
-                build_display.build = build
-                stages.extend(
-                    filter(lambda s: s["name"] not in known_stages, build["stages"])
-                )
-                known_stages = set(s["name"] for s in build["stages"])
-                while build["status"] in ["IN_PROGRESS"] and len(stages) == 0:
-                    await asyncio.sleep(1)
-                    response = await self.client.get(
-                        self.latest_build_url + "/wfapi/describe"
-                    )
-                    build = response.json()
-                    build_display.build = build
-                    stages.extend(
-                        filter(lambda s: s["name"] not in known_stages, build["stages"])
-                    )
-                    known_stages = set(s["name"] for s in build["stages"])
+                processed_ids.add(stage["id"])
 
         except asyncio.CancelledError as e:
             textual.log("Cancelled with " + str(e))
