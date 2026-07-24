@@ -5,7 +5,7 @@ from urllib.parse import urlparse
 import httpx
 from textual.app import App
 
-from buildview.auth import CredentialStore, Credentials, build_http_client, validate
+from buildview.auth import CredentialStore, Credentials, StorageBackend, build_http_client, validate
 from buildview.screens.build_watch import BuildWatchScreen
 from buildview.screens.job_browser import JobBrowserScreen
 from buildview.screens.login import LoginScreen
@@ -66,14 +66,24 @@ class JenkinsBuildViewApp(App):
         self.client = client
         self.server_url = credentials.server
         try:
-            self.credential_store.save(credentials)
+            backend = self.credential_store.save(credentials)
         except Exception as exc:
             self.notify(
                 f"{exc}\n\nYou'll need to log in again next time.",
-                title="Could not save credentials securely",
+                title="Could not save credentials",
                 severity="warning",
                 timeout=10,
             )
+        else:
+            if backend is StorageBackend.FALLBACK_FILE:
+                self.notify(
+                    "No OS keychain available here (common on headless/SSH-only "
+                    f"servers) — token saved to {self.credential_store.token_fallback_path} "
+                    "instead, readable only by you.",
+                    title="Credentials saved without OS keychain",
+                    severity="information",
+                    timeout=8,
+                )
         self.pop_screen()
         self.push_screen(JobBrowserScreen())
 

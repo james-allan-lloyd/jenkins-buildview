@@ -35,6 +35,13 @@ a searchable list of jobs on that server &mdash; type to filter, then select
 a job (or press enter) to start following its builds. Press `escape` while
 watching a build to go back to the job list.
 
+On headless/SSH-only Linux machines there's usually no OS keychain
+(Secret Service provider like `gnome-keyring` or `kwallet`) available, since
+those require a logged-in desktop session. When that's the case, the app
+falls back to storing the token in `~/.config/jenkins-buildview/token`
+instead, readable only by your user &mdash; you'll see a notification in the
+app confirming this happened.
+
 ### Direct URL mode
 
 You can still jump straight to tailing a specific job, bypassing the login
