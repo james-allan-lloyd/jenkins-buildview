@@ -137,8 +137,9 @@ class BuildWatchScreen(Screen):
                 "server": self.server,
             }
 
-            if job_data["lastBuild"]["url"] != self.latest_build_url:
-                self.latest_build_url = job_data["lastBuild"]["url"]
+            last_build = job_data.get("lastBuild")
+            if last_build is not None and last_build["url"] != self.latest_build_url:
+                self.latest_build_url = last_build["url"]
                 self.update_build()
 
             await asyncio.sleep(1)

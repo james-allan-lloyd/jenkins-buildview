@@ -44,7 +44,7 @@ class BuildDisplay(Static):
 
     def compose(self) -> ComposeResult:
         console = Console(client=self.client)
-        tree = Tree(id="build_tree", label="No build")
+        tree = Tree(id="build_tree", label="Not built yet - press B to build")
         tree.border_title = "Stages"
         yield Vertical(
             tree,
@@ -98,4 +98,4 @@ class BuildDisplay(Static):
             tree.root.expand()
             _sync_stage_nodes(tree.root, new_build["stages"])
         else:
-            tree.root.label = "No build"
+            tree.root.label = "Not built yet - press B to build"
