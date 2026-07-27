@@ -89,3 +89,9 @@ Feature: Following build console output stage by stage
     Then those already-finished backlog stages are not eagerly downloaded
     And buildview jumps straight to the currently active leaf stage and follows it live
     And the skipped backlog stages are still fetchable on demand if I select them
+
+  Scenario: A stage's raw output contains characters that look like markup
+    Given a stage's console log contains literal square brackets, e.g. a tool printing a file list like "[/path/a.json, /other/path/b.json]"
+    When that log is rendered into the console
+    Then the text is shown exactly as-is
+    And it is never misinterpreted as styling syntax, however it's bracketed

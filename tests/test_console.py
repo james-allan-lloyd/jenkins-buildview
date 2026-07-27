@@ -1,5 +1,29 @@
-from buildview.console import log_to_rich_text
+from textual.app import App, ComposeResult
+from textual.widgets import RichLog
+
+from buildview.console import Console, log_to_rich_text
 from rich.text import Text
+
+
+class ConsoleHostApp(App):
+    def compose(self) -> ComposeResult:
+        yield Console(client=None)
+
+
+async def test_append_does_not_crash_on_literal_square_brackets_in_log_text():
+    """Regression test: raw Jenkins console output can legitimately contain
+    square brackets (e.g. a tool printing a file list like
+    "[/path/a.json, /other/path/b.json]"), which used to be misparsed as
+    Rich markup and raise a MarkupError."""
+    app = ConsoleHostApp()
+    async with app.run_test():
+        console = app.query_one(Console)
+        text = "Files found: [/path/a.json, /other/path/b.json]"
+        console.append(text)
+
+        rich_log = console.query_one(RichLog)
+        rendered = "".join(line.text for line in rich_log.lines)
+        assert text in rendered
 
 
 def test_it_removes_html_links():

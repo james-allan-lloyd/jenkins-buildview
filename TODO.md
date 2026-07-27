@@ -6,9 +6,11 @@
 - [ ] bugfix: hitting enter or space on a node should be ignored. It could in
       theory show all the logs for each subnode, provided it doesn't break our
       caching behaviour.
+- [ ] check if execution/node/<node_id>/log/logText can be used to get the
+      logs, since that appears to have end points that support start parameters.
 - [ ] tech debt: separate the built_watch tui from the async work in order to
       make it clear the flow.
-- [ ] fix bug where no closing tag is found.
+- [x] fix bug where no closing tag is found.
 - [ ] feature change: back in direct url mode should still take you back to the
       job browser
 - [ ] feature change: don't ask for API token, rather password - but store a

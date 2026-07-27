@@ -92,7 +92,13 @@ class Console(Static):
         self.prev_focus = prev_focus
 
     def compose(self) -> ComposeResult:
-        log = RichLog(markup=True, wrap=True, min_width=120, max_lines=None)
+        # markup=False: this widget only ever shows raw Jenkins console
+        # output, which is untrusted text that can legitimately contain
+        # square brackets (e.g. "[/path/a.json, /other/path/b.json]").
+        # With markup enabled, Rich tries to parse those as style tags and
+        # raises a MarkupError on anything that doesn't look like a valid
+        # tag pair.
+        log = RichLog(markup=False, wrap=True, min_width=120, max_lines=None)
         log.border_title = "Console"
         yield log
 
