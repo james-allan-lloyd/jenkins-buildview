@@ -76,3 +76,16 @@ Feature: Following build console output stage by stage
     When I select a later stage that hasn't been fetched yet
     Then that stage's log is fetched on demand and cached
     And stages I haven't selected remain un-downloaded
+
+  # Symmetrical to the already-finished-build case above: a build that's
+  # still running, but was already partway through before we started
+  # following it (we opened/re-opened the screen rather than triggering the
+  # build and watching it from stage one), can also have a backlog of
+  # already-finished stages. There's no more value in replaying that backlog
+  # than there is for a finished build's earlier stages.
+  Scenario: Opening a job whose latest build was already partway through
+    Given the job's latest build is still in progress
+    And one or more of its leaf stages had already finished before I opened this screen
+    Then those already-finished backlog stages are not eagerly downloaded
+    And buildview jumps straight to the currently active leaf stage and follows it live
+    And the skipped backlog stages are still fetchable on demand if I select them

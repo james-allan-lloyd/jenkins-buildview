@@ -6,7 +6,7 @@ import pytest
 from textual.app import App
 from textual.widgets import Tree
 
-from buildview.screens.build_watch import BuildWatchScreen
+from buildview.screens.build_watch import ACTIVE_STATES, BuildWatchScreen, _leaf_stages
 
 pytestmark = pytest.mark.integration
 
@@ -141,6 +141,19 @@ async def test_stage_tailing_and_caching_against_a_live_build(jenkins_url):
 
             build = screen.query_one("#build_display").build
             assert build is not None and build["complete"]
+
+            # Visit every leaf so any that were skipped as "already-finished
+            # backlog" when we first attached (see the dedicated backlog
+            # test below) get lazily fetched too -- the goal here is that
+            # each stage ends up with its own distinct cached log, whichever
+            # path populated it.
+            for leaf in leaves:
+                screen.on_tree_node_selected(type("Msg", (), {"node": leaf})())
+                for _ in range(15):
+                    if leaf.data["id"] in screen.log_cache:
+                        break
+                    await pilot.pause(0.5)
+
             assert set(screen.log_cache.keys()) == {leaf.data["id"] for leaf in leaves}
             assert all(len(text) > 0 for text in screen.log_cache.values())
 
@@ -153,5 +166,63 @@ async def test_stage_tailing_and_caching_against_a_live_build(jenkins_url):
             screen.on_tree_node_selected(type("Msg", (), {"node": last_leaf})())
             await pilot.pause(0.2)
             assert screen.viewing_stage_id == last_leaf.data["id"]
+    finally:
+        await client.aclose()
+
+
+async def test_opening_an_in_progress_build_skips_the_already_finished_backlog(jenkins_url):
+    """Regression test for skipping to the latest node on a build that's
+    already partway through: if we open (or re-open) the screen after a
+    build has been running for a while -- rather than triggering it
+    ourselves and watching from stage one -- any leaf stages that had
+    already finished before we started following it should not be
+    downloaded up front. Only the currently active stage should be watched
+    live; the finished backlog is still fetchable on demand (see the
+    already-finished-build test above)."""
+    client = httpx.AsyncClient(
+        base_url=jenkins_url,
+        auth=("admin", "admin"),
+        headers={"Accept": "application/json, text/javascript, */*; q=0.01"},
+    )
+    try:
+        await client.post("/job/parallel-nested-demo/build?delay=0sec")
+
+        # Poll with plain HTTP (no BuildWatchScreen involved yet) until a
+        # backlog has genuinely formed: at least one finished leaf stage,
+        # followed by one that's currently active.
+        backlog_stage_id = None
+        active_stage_id = None
+        for _ in range(30):
+            tree = (
+                await client.get("/job/parallel-nested-demo/lastBuild/stages/tree")
+            ).json()["data"]
+            leaves = list(_leaf_stages(tree["stages"]))
+            if len(leaves) >= 2 and leaves[-1]["state"] in ACTIVE_STATES:
+                backlog_stage_id = leaves[0]["id"]
+                active_stage_id = leaves[-1]["id"]
+                break
+            await asyncio.sleep(1)
+        assert backlog_stage_id is not None, "build never formed a backlog before finishing"
+
+        app = WatchApp(jenkins_url + "/job/parallel-nested-demo", client)
+        async with app.run_test(size=(160, 40)) as pilot:
+            screen = app.screen
+
+            for _ in range(15):
+                if screen.current_stage_id is not None:
+                    break
+                await pilot.pause(0.5)
+
+            assert screen.current_stage_id == active_stage_id
+            assert backlog_stage_id not in screen.log_cache
+
+            # The rest of the build should still progress normally from here.
+            for _ in range(60):
+                build = screen.query_one("#build_display").build
+                if build is not None and build.get("complete"):
+                    break
+                await pilot.pause(1)
+            build = screen.query_one("#build_display").build
+            assert build is not None and build["complete"]
     finally:
         await client.aclose()

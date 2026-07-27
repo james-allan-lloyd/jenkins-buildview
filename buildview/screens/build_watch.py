@@ -270,6 +270,16 @@ class BuildWatchScreen(Screen):
 
             processed_ids: set[str] = set()
 
+            # The build was already partway through when we started
+            # following it (e.g. we just opened this screen rather than
+            # triggering the build ourselves), so there may already be a
+            # backlog of finished stages. Don't replay them one by one --
+            # jump straight to the most recent leaf stage and follow that
+            # live. The skipped stages are still fetchable on demand if the
+            # user selects them (see show_stage_log).
+            for stage in list(_leaf_stages(build["stages"]))[:-1]:
+                processed_ids.add(stage["id"])
+
             while True:
                 build = await self._fetch_build_view()
                 build_display.build = build
