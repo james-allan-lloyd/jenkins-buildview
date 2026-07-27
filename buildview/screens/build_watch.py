@@ -171,7 +171,11 @@ class BuildWatchScreen(Screen):
         tree_response = await self.client.get(self.latest_build_url + "/stages/tree")
         tree_json = tree_response.json()["data"]
 
-        status = "IN_PROGRESS" if build_json["building"] else (build_json["result"] or "UNKNOWN")
+        status = (
+            "IN_PROGRESS"
+            if build_json["building"]
+            else (build_json["result"] or "UNKNOWN")
+        )
 
         build_view = {
             "id": build_json["id"],
@@ -182,7 +186,9 @@ class BuildWatchScreen(Screen):
             "complete": tree_json["complete"],
         }
         if not build_json["building"]:
-            build_view["endTimeMillis"] = build_json["timestamp"] + build_json["duration"]
+            build_view["endTimeMillis"] = (
+                build_json["timestamp"] + build_json["duration"]
+            )
         return build_view
 
     async def _tail_stage_log(self, node_id: str) -> None:
@@ -225,16 +231,14 @@ class BuildWatchScreen(Screen):
         while True:
             await self._tail_stage_log(node_id)
 
-            tree_response = await self.client.get(self.latest_build_url + "/stages/tree")
+            tree_response = await self.client.get(
+                self.latest_build_url + "/stages/tree"
+            )
             current = _find_stage(tree_response.json()["data"]["stages"], node_id)
             if current is None or current["state"] not in ACTIVE_STATES:
                 break
 
-            textual.log("sleeping, waiting for logs")
             await asyncio.sleep(1)
-            textual.log("awake")
-
-        textual.log("Stage finished: " + stage["name"])
 
     @work(exclusive=True, group="build_update")
     async def update_build(self) -> None:
@@ -305,7 +309,6 @@ class BuildWatchScreen(Screen):
         except asyncio.CancelledError as e:
             textual.log("Cancelled with " + str(e))
             raise
-        textual.log("Build finished")
 
     async def action_build(self) -> None:
         await self.client.post(self.url + "/build?delay=0sec")
