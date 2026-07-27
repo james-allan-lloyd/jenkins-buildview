@@ -8,7 +8,7 @@ from textual import work
 from textual.app import ComposeResult
 from textual.reactive import reactive
 from textual.screen import Screen
-from textual.widgets import Footer, RichLog, Tree
+from textual.widgets import Footer, Tree
 
 from buildview.build_display import BuildDisplay
 from buildview.console import Console
@@ -56,9 +56,15 @@ class BuildWatchScreen(Screen):
     def __init__(self, url: str, client: httpx.AsyncClient, allow_back: bool = True):
         super().__init__()
         self.client = client
-        self.positions = {}
         self.server = None
         self.allow_back = allow_back
+        # Raw log text downloaded so far per stage id, so revisiting a stage
+        # (or a stage that already finished before the user looked at it)
+        # doesn't need to hit the network again.
+        self.log_cache: dict[str, str] = {}
+        self.current_stage_id: str | None = None
+        self.viewing_stage_id: str | None = None
+        self.following_latest = True
         self.url = url
 
     def compose(self) -> ComposeResult:
@@ -80,11 +86,6 @@ class BuildWatchScreen(Screen):
         if self.allow_back:
             self.app.pop_screen()
 
-    def scroll_console_to_node(self, node):
-        position = self.positions.get(node.data["id"])
-        if position is not None:
-            self.query_one("#console RichLog", RichLog).scroll_to(0, position, duration=1)
-
     def _find_tree_node(self, node_id: str):
         def walk(node):
             for child in node.children:
@@ -103,21 +104,25 @@ class BuildWatchScreen(Screen):
             self.query_one("#build_tree", Tree).move_cursor(node)
 
     def on_tree_node_selected(self, message):
-        if message.node.data is not None:
+        stage = message.node.data
+        if stage is not None:
             tree = self.query_one("#build_tree")
             self.query_one("#console", Console).push_focus(tree)
-            self.scroll_console_to_node(message.node)
+            # Selecting the stage that's actually running resumes live
+            # tailing; selecting any other (necessarily finished) stage just
+            # shows a snapshot of its cached log until the user selects the
+            # live stage again.
+            self.following_latest = stage["id"] == self.current_stage_id
+            self.show_stage_log(stage)
 
-    def on_console_line_changed(self, message):
-        node_id = None
-        sorted_positions = sorted(self.positions.items(), key=lambda p: p[1])
-        for position in sorted_positions:
-            if node_id is None or message.line >= position[1]:
-                node_id = position[0]
-            else:
-                break
-        if node_id is not None:
-            self.set_current_node_by_id(node_id)
+    def show_stage_log(self, stage: dict) -> None:
+        self.viewing_stage_id = stage["id"]
+        console = self.query_one("#console", Console)
+        console.set_title(stage["name"])
+        console.clear()
+        cached = self.log_cache.get(stage["id"])
+        if cached:
+            console.append(cached)
 
     @work(exclusive=True, exit_on_error=True, group="latest_build")
     async def update_latest_build(self) -> None:
@@ -171,18 +176,45 @@ class BuildWatchScreen(Screen):
             build_view["endTimeMillis"] = build_json["timestamp"] + build_json["duration"]
         return build_view
 
+    async def _tail_stage_log(self, node_id: str) -> None:
+        """Fetch a stage's log (the stages/log endpoint has no offset param,
+        so it always returns the full text from the start) and merge in only
+        what's new since the last fetch. Streams the response instead of
+        buffering it whole, so a large/growing log renders into the console
+        progressively as bytes arrive rather than one big blocking write."""
+        cached = self.log_cache.get(node_id, "")
+        known_length = len(cached)
+        seen = 0
+        new_pieces = []
+        console = self.query_one("#console", Console)
+
+        async with self.client.stream(
+            "GET", self.latest_build_url + "/stages/log", params={"nodeId": node_id}
+        ) as response:
+            async for chunk in response.aiter_text():
+                chunk_start = seen
+                seen += len(chunk)
+                if seen <= known_length:
+                    continue
+                if chunk_start < known_length:
+                    chunk = chunk[known_length - chunk_start :]
+                if not chunk:
+                    continue
+                new_pieces.append(chunk)
+                if self.viewing_stage_id == node_id:
+                    console.append(chunk)
+
+        if new_pieces:
+            self.log_cache[node_id] = cached + "".join(new_pieces)
+
     async def watch_stage(self, stage: dict) -> None:
         node_id = stage["id"]
-        last_length = 0
+        self.current_stage_id = node_id
+        if self.following_latest:
+            self.show_stage_log(stage)
+
         while True:
-            response = await self.client.get(
-                self.latest_build_url + "/stages/log",
-                params={"nodeId": node_id},
-            )
-            text = response.text
-            if len(text) > last_length:
-                self.query_one("#console", Console).append(text[last_length:])
-                last_length = len(text)
+            await self._tail_stage_log(node_id)
 
             tree_response = await self.client.get(self.latest_build_url + "/stages/tree")
             current = _find_stage(tree_response.json()["data"]["stages"], node_id)
@@ -200,6 +232,7 @@ class BuildWatchScreen(Screen):
         try:
             console = self.query_one("#console", Console)
             console.clear()
+            console.set_title()
             build_display = self.query_one("#build_display", BuildDisplay)
 
             while True:
@@ -209,7 +242,10 @@ class BuildWatchScreen(Screen):
                     break
                 await asyncio.sleep(1)
 
-            self.positions = {}
+            self.log_cache = {}
+            self.current_stage_id = None
+            self.viewing_stage_id = None
+            self.following_latest = True
             processed_ids: set[str] = set()
 
             while True:
@@ -229,9 +265,6 @@ class BuildWatchScreen(Screen):
                     continue
 
                 stage = pending[0]
-                self.positions[stage["id"]] = console.current_position
-                console.append("[yellow]--- " + stage["name"] + " ---[/yellow]")
-
                 self.set_current_node_by_id(stage["id"])
 
                 await self.watch_stage(stage)

@@ -1,7 +1,6 @@
 from textual import events
 from textual.widgets import Static, RichLog
 from textual.app import ComposeResult
-from textual.message import Message
 from rich.text import Text
 
 from html.parser import HTMLParser
@@ -78,26 +77,15 @@ def log_to_rich_text(input: str) -> Text:
 
 
 class Console(Static):
-    class LineChanged(Message):
-        def __init__(self, line: int) -> None:
-            self.line = line
-            super().__init__()
-
     def __init__(self, client):
         self.client = client
-        self.current_stage_url = None
-        self.current_stage_complete_nodes = set()
-        self.current_completed_text = ""
         self.prev_focus = None
-        self.current_position = 0
         super().__init__(id="console")
 
     def on_key(self, event: events.Key) -> None:
         if event.name == "escape":
             if self.prev_focus:
                 self.prev_focus.focus()
-        if event.name in ["down", "up", "pageup", "pagedown"]:
-            self.post_message(self.LineChanged(self.query_one(RichLog).scroll_offset.y))
 
     def push_focus(self, prev_focus):
         self.query_one(RichLog).focus()
@@ -108,17 +96,16 @@ class Console(Static):
         log.border_title = "Console"
         yield log
 
+    def set_title(self, title: str | None = None) -> None:
+        self.query_one(RichLog).border_title = f"Console — {title}" if title else "Console"
+
     def clear(self):
-        rich_log = self.query_one(RichLog)
-        rich_log.clear()
-        self.current_position = rich_log.virtual_size.height
+        self.query_one(RichLog).clear()
 
     def append(self, text: str | Text) -> None:
         if len(text) == 0:
             return
-        rich_log = self.query_one(RichLog)
-        rich_log.write(text, shrink=True)
-        self.current_position = rich_log.virtual_size.height
+        self.query_one(RichLog).write(text, shrink=True)
 
     def append_html(self, text: str) -> None:
         self.append(log_to_rich_text(text))
