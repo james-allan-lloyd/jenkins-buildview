@@ -1,3 +1,4 @@
+import asyncio
 from pathlib import Path
 
 import httpx
@@ -29,6 +30,80 @@ def _leaf_nodes(node):
         if child.data is not None and not child.data["children"]:
             yield child
         yield from _leaf_nodes(child)
+
+
+async def _trigger_and_wait_for_completion(client: httpx.AsyncClient, job_path: str) -> None:
+    """Trigger a build and block (via plain HTTP polling, no BuildWatchScreen
+    involved) until it's finished -- so the test below opens a build that is
+    already complete, rather than racing to catch it mid-run."""
+    response = await client.post(f"/job/{job_path}/build?delay=0sec")
+    queue_url = response.headers["Location"]
+
+    build_url = None
+    for _ in range(30):
+        queue_data = (await client.get(queue_url + "api/json")).json()
+        if "executable" in queue_data:
+            build_url = queue_data["executable"]["url"]
+            break
+        await asyncio.sleep(1)
+    assert build_url is not None, "build never left the queue"
+
+    for _ in range(30):
+        building = (
+            await client.get(build_url + "api/json", params={"tree": "building"})
+        ).json()["building"]
+        if not building:
+            return
+        await asyncio.sleep(1)
+    raise AssertionError("build never finished")
+
+
+async def test_opening_an_already_finished_build_only_fetches_the_first_stage(jenkins_url):
+    """Regression test for the "don't eagerly download every stage of an
+    already-complete build" behaviour: if the build was already finished
+    before BuildWatchScreen started following it (as opposed to us watching
+    it run live), only the first leaf stage's log should be downloaded up
+    front -- the rest are fetched lazily, only if/when the user selects
+    them."""
+    client = httpx.AsyncClient(
+        base_url=jenkins_url,
+        auth=("admin", "admin"),
+        headers={"Accept": "application/json, text/javascript, */*; q=0.01"},
+    )
+    try:
+        await _trigger_and_wait_for_completion(client, "simple-demo")
+
+        app = WatchApp(jenkins_url + "/job/simple-demo", client)
+        async with app.run_test(size=(160, 40)) as pilot:
+            screen = app.screen
+            tree = screen.query_one("#build_tree", Tree)
+
+            for _ in range(15):
+                if len(list(_leaf_nodes(tree.root))) >= 3:
+                    break
+                await pilot.pause(1)
+
+            leaves = list(_leaf_nodes(tree.root))
+            assert len(leaves) == 3
+
+            # Give the fast path a moment to settle, then confirm only the
+            # first stage was downloaded -- not all three.
+            await pilot.pause(1)
+            assert screen.current_stage_id is None  # nothing is "live"
+            assert list(screen.log_cache.keys()) == [leaves[0].data["id"]]
+            assert screen.viewing_stage_id == leaves[0].data["id"]
+
+            # Selecting a stage that was never eagerly downloaded fetches it
+            # lazily, on demand.
+            screen.on_tree_node_selected(type("Msg", (), {"node": leaves[2]})())
+            for _ in range(15):
+                if leaves[2].data["id"] in screen.log_cache:
+                    break
+                await pilot.pause(1)
+            assert leaves[2].data["id"] in screen.log_cache
+            assert leaves[1].data["id"] not in screen.log_cache
+    finally:
+        await client.aclose()
 
 
 async def test_stage_tailing_and_caching_against_a_live_build(jenkins_url):

@@ -123,6 +123,15 @@ class BuildWatchScreen(Screen):
         cached = self.log_cache.get(stage["id"])
         if cached:
             console.append(cached)
+        elif stage["id"] != self.current_stage_id:
+            # Not cached, and not the stage watch_stage() is already polling
+            # -- e.g. a finished stage in an already-complete build that we
+            # never eagerly downloaded. Fetch it on demand instead.
+            self._fetch_stage_log_once(stage["id"])
+
+    @work()
+    async def _fetch_stage_log_once(self, node_id: str) -> None:
+        await self._tail_stage_log(node_id)
 
     @work(exclusive=True, exit_on_error=True, group="latest_build")
     async def update_latest_build(self) -> None:
@@ -246,6 +255,19 @@ class BuildWatchScreen(Screen):
             self.current_stage_id = None
             self.viewing_stage_id = None
             self.following_latest = True
+
+            if build["complete"]:
+                # Already-finished build (e.g. we just opened a job whose
+                # latest build had already ended, rather than watching it
+                # run) -- downloading every stage's log up front is wasted
+                # work if the user only ever looks at one or two. Just show
+                # the first stage; the rest are fetched lazily on selection.
+                leaves = list(_leaf_stages(build["stages"]))
+                if leaves:
+                    self.set_current_node_by_id(leaves[0]["id"])
+                    self.show_stage_log(leaves[0])
+                return
+
             processed_ids: set[str] = set()
 
             while True:

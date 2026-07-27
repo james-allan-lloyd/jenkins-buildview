@@ -118,6 +118,65 @@ async def test_selecting_a_finished_stage_shows_its_cached_log_and_stops_followi
         await client.aclose()
 
 
+async def test_show_stage_log_lazily_fetches_an_uncached_non_live_stage():
+    fake_console = FakeConsole()
+    client = httpx.AsyncClient(
+        transport=httpx.MockTransport(lambda r: httpx.Response(200)), base_url="http://fake"
+    )
+    screen = make_screen(client, fake_console)
+    screen.current_stage_id = None  # nothing currently live
+
+    fetched = []
+    screen._fetch_stage_log_once = lambda node_id: fetched.append(node_id)
+
+    try:
+        screen.show_stage_log({"id": "old-stage", "name": "Old Stage"})
+        assert fetched == ["old-stage"]
+        assert screen.viewing_stage_id == "old-stage"
+    finally:
+        await client.aclose()
+
+
+async def test_show_stage_log_does_not_fetch_the_stage_already_being_tailed():
+    fake_console = FakeConsole()
+    client = httpx.AsyncClient(
+        transport=httpx.MockTransport(lambda r: httpx.Response(200)), base_url="http://fake"
+    )
+    screen = make_screen(client, fake_console)
+    screen.current_stage_id = "live-stage"
+
+    fetched = []
+    screen._fetch_stage_log_once = lambda node_id: fetched.append(node_id)
+
+    try:
+        screen.show_stage_log({"id": "live-stage", "name": "Live Stage"})
+        # watch_stage()'s own polling loop is already tailing this stage --
+        # a separate one-off fetch here would just race it.
+        assert fetched == []
+    finally:
+        await client.aclose()
+
+
+async def test_show_stage_log_does_not_refetch_an_already_cached_stage():
+    fake_console = FakeConsole()
+    client = httpx.AsyncClient(
+        transport=httpx.MockTransport(lambda r: httpx.Response(200)), base_url="http://fake"
+    )
+    screen = make_screen(client, fake_console)
+    screen.current_stage_id = None
+    screen.log_cache["old-stage"] = "already downloaded"
+
+    fetched = []
+    screen._fetch_stage_log_once = lambda node_id: fetched.append(node_id)
+
+    try:
+        screen.show_stage_log({"id": "old-stage", "name": "Old Stage"})
+        assert fetched == []
+        assert fake_console.appended == ["already downloaded"]
+    finally:
+        await client.aclose()
+
+
 async def test_selecting_the_running_stage_resumes_following():
     fake_console = FakeConsole()
     client = httpx.AsyncClient(

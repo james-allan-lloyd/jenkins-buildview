@@ -1,7 +1,7 @@
 # TODO
 
 - [x] BDD specs
-- [ ] for already completed builds, don't download each stage; instead just
+- [x] for already completed builds, don't download each stage; instead just
       select the first.
 - [ ] fix bug where no closing tag is found.
 - [ ] feature change: back in direct url mode should still take you back to the

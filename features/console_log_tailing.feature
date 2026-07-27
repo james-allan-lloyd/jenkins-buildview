@@ -6,34 +6,39 @@ Feature: Following build console output stage by stage
   entire build's combined output, and switching between stages is instant
 
   Background:
-    Given I am on the build watch screen with a build in progress
+    Given I am on the build watch screen for a job
 
   Scenario: The console follows the currently active stage by default
-    Given a new leaf stage starts running
+    Given a build is in progress
+    And a new leaf stage starts running
     Then the console is cleared
     And the console's title is set to that stage's name
     And console content is only ever that one stage's log, never the whole build's history concatenated together
 
   Scenario: Live tailing an active stage
-    Given the console is currently showing the active stage
+    Given a build is in progress
+    And the console is currently showing the active stage
     When more console output becomes available on the server
     Then only the new text is appended to the console
     And the cached copy of that stage's log grows to match
 
   Scenario: Caching a stage's log once downloaded
-    Given a stage's log has already been fetched, fully or partially
+    Given a build is in progress
+    And a stage's log has already been fetched, fully or partially
     When buildview polls that stage's log again
     Then only the text beyond what's already cached is treated as new
     And nothing already shown is re-rendered or re-appended
 
   Scenario: Viewing a finished stage's log
-    Given an earlier stage has already finished
+    Given a build is in progress
+    And an earlier stage has already finished
     When I select that stage in the tree
     Then the console clears and shows that stage's log from cache, instantly, with no network request needed
     And the console stops auto-following the currently active stage
 
   Scenario: Returning to the live stage
-    Given I am viewing a finished stage's cached log
+    Given a build is in progress
+    And I am viewing a finished stage's cached log
     And a different stage is currently active
     When I select the currently active stage in the tree
     Then the console resumes live tailing of that stage
@@ -54,3 +59,20 @@ Feature: Following build console output stage by stage
     Then all previously cached stage logs are discarded
     And the console is cleared and its title reset to the default
     And stage-following resets, so the new build's first stage is tailed live
+
+  # Opening a build that had already finished before buildview started
+  # watching it (as opposed to one we watched run to completion live) means
+  # there's no "currently active" stage to tail -- so there's nothing to
+  # gain by eagerly downloading every stage's log up front. Only the first
+  # stage is fetched; the rest are left for on-demand fetching (see below).
+  Scenario: Opening a job whose latest build had already finished
+    Given the job's latest build was already complete before I opened this screen
+    Then buildview does not eagerly download every stage's log
+    And only the first leaf stage's log is fetched and shown in the console
+    And no stage is treated as "currently live"
+
+  Scenario: Selecting a never-downloaded stage of an already-finished build
+    Given I opened an already-finished build, and only its first stage was downloaded
+    When I select a later stage that hasn't been fetched yet
+    Then that stage's log is fetched on demand and cached
+    And stages I haven't selected remain un-downloaded
